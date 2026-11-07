@@ -73,7 +73,7 @@ def figure(path, out):
             ax.set_title(title, fontsize=9)
             if i == 1:
                 ax.set_xlabel('step')
-        row[0].legend(fontsize=7, frameon=False)
+        row[1].legend(*row[0].get_legend_handles_labels(), fontsize=7, frameon=False, loc='upper left')
     fig.tight_layout()
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)

@@ -41,6 +41,7 @@ def plot(path, out, kind='mlp_in', real=None):
     runs = json.loads(Path(path).read_text())['runs']
     color = {'adamw': 'C0', 'muon': 'C1'}
     fig, axes = plt.subplots(1, 3, figsize=(10, 2.6))
+    axes[0].sharey(axes[1])  # same scale for both stable-rank panels, so a few units of ripple stay flat
     panels = [('noise', 'stable_rank', '(a) stable rank of W, noise'),
               ('lowrank', 'stable_rank', '(b) stable rank of W, rank-4 signal + noise'),
               ('noise', 'cos', '(c) cosine of consecutive updates, noise')]
