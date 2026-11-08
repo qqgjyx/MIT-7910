@@ -29,7 +29,7 @@
 \maketitle
 \vspace{-0.8em}
 
-\paragraph{Summary.} (ii)~The update cosine follows the rule; so do stable rank and $\sigma_1/\sigma_{\mathrm{median}}$, but the spectral norm does not. (iii)~Weight decay does not explain Muon's speed; without orthogonalization Muon is worse; speed and spectra move together, so the cause is open; after a swap the loss moves before the stable rank.
+\paragraph{Summary.} (ii)~The update cosine follows the rule; on the two real gradient streams so do stable rank and $\sigma_1/\sigma_{\mathrm{median}}$, but the spectral norm does not. (iii)~Weight decay does not explain Muon's speed; without orthogonalization Muon is worse; speed and spectra move together, so the cause is open; from step 1000 on, after a swap the loss moves before the stable rank.
 
 %% =================================================================
 %% Setup and reproduction
@@ -77,7 +77,7 @@ On synthetic gradients (noise, or a rank-4 signal plus noise), each rule updates
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/rule_noise.pdf}
-\caption{Each rule on synthetic gradients, MLP input matrix.}
+\caption{Each rule on synthetic gradients, MLP input matrix (the text's ranges cover one matrix of each of the three shapes).}
 \label{fig:noise}
 \end{figure}
 
@@ -96,7 +96,7 @@ On synthetic gradients (noise, or a rank-4 signal plus noise), each rule updates
 \begin{table}[H]
 \centering
 \small
-\caption{The $2\times2$ design at step 10{,}000; range over data orders 0 to 2.}
+\caption{The $2\times2$ design at step 10{,}000 (update cosine: last available pair, step 9{,}998); range over data orders 0 to 2.}
 \label{tab:ghost}
 \begin{tabular}{l l ccc}
 \toprule
@@ -130,9 +130,9 @@ Muon  & AdamW (ghost)& 87.0 to 87.2 & 2.77 to 2.80 & 0.70 \\
 \subsection{What the speed needs}
 \label{sec:ablate}
 
-\textbf{Weight decay is not the reason (\cref{tab:ablate}):} Muon has none and is faster; adding or removing it changes final loss by 0.005 to 0.012.
+\textbf{Weight decay is not the reason for Muon's lead (\cref{tab:ablate}):} Muon has none and ends lower; adding or removing it changes final loss by 0.005 to 0.012.
 
-\textbf{Without orthogonalization (momentum rescaled to an orthogonal update's norm) Muon is worse:} worse than AdamW at every learning rate; at 0.01 the two failing orders collapse to stable rank 3.6 and 5.5 (the order that trains: 34.8).
+\textbf{Without orthogonalization (Nesterov update rescaled to an orthogonal update's norm) Muon is worse:} worse than AdamW at all three learning rates tried; at 0.01 the two failing orders collapse to stable rank 3.6 and 5.5 (the order that trains: 34.8).
 
 \begin{table}[H]
 \centering

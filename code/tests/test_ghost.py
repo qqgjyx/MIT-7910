@@ -48,6 +48,12 @@ def test_ghost_is_open_loop():
     assert differ(model, g.models['muon'])
 
 
+def test_ghost_load_refuses_missing_state():
+    _, g = run('adamw', '[muon]')
+    with pytest.raises(AssertionError):
+        g.load(None)
+
+
 def test_muon_without_orthogonalization():
     torch.manual_seed(0)
     for shape in [(16, 48), (48, 16)]:

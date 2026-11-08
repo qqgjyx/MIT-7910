@@ -86,7 +86,8 @@ class Shadow:
 
 
 class Ghost:
-    """Open-loop copies of the model, one per rule in `cfg.ghost`, updated on the run's gradients (see DESIGN.md)."""
+    """Open-loop copies of the model, one per rule in `cfg.ghost`, updated on the run's gradients (see DESIGN.md).
+    Only the global lr schedule is applied (no `balance` layer rates), so own-rule ghosts match unbalanced runs."""
 
     def __init__(self, model, cfg):
         self.models = {rule: copy.deepcopy(model) for rule in cfg.get('ghost', []) or []}
@@ -105,7 +106,9 @@ class Ghost:
         return {r: dict(model=self.models[r].state_dict(), optimizer=self.opts[r].state_dict()) for r in self.models}
 
     def load(self, state):
-        for r, s in (state or {}).items():
-            if r in self.models:
-                self.models[r].load_state_dict(s['model'])
-                load_optimizer_state(self.opts[r], s['optimizer'])
+        state = state or {}
+        missing = set(self.models) - set(state)
+        assert not missing, f'checkpoint has no state for ghosts {sorted(missing)}: they would restart at initialization'
+        for r in self.models:
+            self.models[r].load_state_dict(state[r]['model'])
+            load_optimizer_state(self.opts[r], state[r]['optimizer'])
