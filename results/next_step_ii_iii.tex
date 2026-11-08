@@ -170,16 +170,18 @@ Muon, no orthogonalization, lr 0.03           & 4.078 &       &       \\
 \subsection{Dose-response}
 \label{sec:dose}
 
-Muon's update with its singular values raised to a power $p$: $p=0$ is exact orthogonalization (an exact SVD, not Muon's Newton-Schulz approximation), $p=1$ is none. One data order (0), Muon at learning rate 0.01 (\cref{tab:dose}).
+Muon's update with its singular values raised to a power $p$: $p=0$ is exact orthogonalization (an exact SVD, not Muon's Newton-Schulz approximation), $p=1$ is none. Muon at learning rate 0.01, data order 0 (\cref{tab:dose}).
 
-\textbf{Speed and spectra move together with $p$.} As $p$ grows, the run reaches loss 1.81 later, and its stable rank and $\sigma_1/\sigma_{\mathrm{median}}$ move toward AdamW's. At $p=0.75$ the stable rank (33.5) matches AdamW's (32.9) and the run still reaches loss 1.81 a little earlier (1394 steps against 1469); its final validation loss is worse (1.357 against 1.339). At learning rate 0.003, $p=0.75$ has stable rank 25.6 and reaches loss 1.81 at step 1298, and $p=1$ at step 2926.
+\textbf{Speed and spectra move together with $p$.} As $p$ grows, the run reaches loss 1.81 later, and its stable rank and $\sigma_1/\sigma_{\mathrm{median}}$ move toward AdamW's.
 
-\textbf{Not shown.} $p$ changes both, so the table cannot say which causes which, and one data order gives no spread.
+\textbf{$p=0.75$ on other data orders.} On orders 0 and 1 the stable rank matches AdamW's (33.4 to 33.5 against 32.4 to 32.9) and loss 1.81 comes at about the same step (1379 to 1394 against 1426 to 1469); final validation loss is worse (1.354 to 1.357 against 1.339 to 1.345). Order 2 stalls from about step 60 and ends at 1.659. At learning rate 0.003 (order 0), $p=0.75$ has stable rank 25.6, below AdamW's, and reaches loss 1.81 at step 1298 against AdamW's 1469; $p=1$ reaches it at step 2926.
+
+\textbf{Not shown.} $p$ changes both, so the table cannot say which causes which.
 
 \begin{table}[H]
 \centering
 \small
-\caption{Muon with singular values raised to $p$; step and spectra at training loss 1.81.}
+\caption{Muon with singular values raised to $p$, data order 0; step and spectra at training loss 1.81.}
 \label{tab:dose}
 \begin{tabular}{l cccc}
 \toprule
