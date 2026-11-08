@@ -1,3 +1,4 @@
+import copy
 import math
 
 import torch
@@ -14,7 +15,8 @@ def build_optimizer(name, model, cfg):
     if name == 'muon':
         hidden, other = muon_params(model)
         groups = [dict(params=[named[n] for n in hidden], lr=o.lr, momentum=o.momentum,
-                       weight_decay=o.weight_decay, use_muon=True),
+                       weight_decay=o.weight_decay, use_muon=True, orthogonalize=o.get('orthogonalize', True),
+                       sv_power=o.get('sv_power')),
                   dict(params=[named[n] for n in other], lr=o.adam_lr, betas=tuple(o.adam_betas),
                        eps=o.adam_eps, weight_decay=o.adam_weight_decay, use_muon=False)]
         opt = SingleDeviceMuonWithAuxAdam(groups)
@@ -81,3 +83,32 @@ class Shadow:
             if n in state_dicts:
                 load_optimizer_state(opt, state_dicts[n])
                 set_lr(opt, 0.0)
+
+
+class Ghost:
+    """Open-loop copies of the model, one per rule in `cfg.ghost`, updated on the run's gradients (see DESIGN.md).
+    Only the global lr schedule is applied (no `balance` layer rates), so own-rule ghosts match unbalanced runs."""
+
+    def __init__(self, model, cfg):
+        self.models = {rule: copy.deepcopy(model) for rule in cfg.get('ghost', []) or []}
+        self.opts = {rule: build_optimizer(rule, g, cfg) for rule, g in self.models.items()}
+
+    def step(self, model, mult):
+        """After the run's optimizer step (which must leave .grad untouched), before zero_grad."""
+        for rule, g in self.models.items():
+            for p, q in zip(model.parameters(), g.parameters()):
+                q.grad = None if p.grad is None else p.grad.clone()
+            set_lr(self.opts[rule], mult)
+            self.opts[rule].step()
+            self.opts[rule].zero_grad(set_to_none=True)
+
+    def state_dicts(self):
+        return {r: dict(model=self.models[r].state_dict(), optimizer=self.opts[r].state_dict()) for r in self.models}
+
+    def load(self, state):
+        state = state or {}
+        missing = set(self.models) - set(state)
+        assert not missing, f'checkpoint has no state for ghosts {sorted(missing)}: they would restart at initialization'
+        for r in self.models:
+            self.models[r].load_state_dict(state[r]['model'])
+            load_optimizer_state(self.opts[r], state[r]['optimizer'])
