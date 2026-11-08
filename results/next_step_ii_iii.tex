@@ -70,9 +70,9 @@ active MLP units & $0.120 \pm 0.001$ ($0.120$) & $0.222 \pm 0.001$ ($0.222$) \\
 
 On synthetic gradients (noise, or a rank-4 signal plus noise), each rule updates one matrix for 10{,}000 steps (\cref{fig:noise}).
 
-\textbf{Update cosine follows the rule:} on noise, 0.90 for AdamW and 0.66 to 0.76 for Muon, close to the real runs (0.89, 0.74).
+\textbf{Update cosine follows the rule:} on noise, 0.90 for AdamW and 0.65 to 0.76 for Muon, close to the real runs (0.89, 0.74).
 
-\textbf{The spectra do not:} on noise the stable rank is unchanged; with the rank-4 signal both fall to about 4 (step 1000: AdamW 3.7, Muon 9.9).
+\textbf{The spectra do not:} on noise the stable rank is unchanged; with the rank-4 signal both fall to about 4 (step 1000: AdamW 3.7, Muon 10.2).
 
 \begin{figure}[H]
 \centering
@@ -196,7 +196,7 @@ AdamW       & 1469 & 32.9 & 7.99 & 1.339 \\
 
 Swap rules at step $k$ (ORCD, order 0, compared only with the swap's own parents; \cref{fig:swap}).
 
-\textbf{From step 1000 on, the loss moves before the stable rank:} AdamW to Muon, at $+100$ steps the loss gap is $-0.062$ (parents $-0.089$) while the stable rank has moved 9\%.
+\textbf{From step 1000 on, the loss moves before the stable rank:} AdamW to Muon, at $+100$ steps the loss gap is $-0.062$ (parents $-0.146$) while the stable rank has moved 9\%.
 
 \textbf{Exception:} Muon to AdamW at step 400, the stable rank has moved 73\% by $+25$, together with the loss spike.
 
