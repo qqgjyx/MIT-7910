@@ -1,11 +1,8 @@
 """Muon, vendored from https://github.com/KellerJordan/Muon (muon.py at f98f1ca, MIT license).
 
 Only the single-device optimizer with auxiliary AdamW is kept. One change: `muon_update` no longer
-overwrites `grad` in place (upstream does `grad.lerp_`), so a shadow optimizer stepping after Muon on
-the same gradients sees them unchanged. Added: a group may set `orthogonalize=False` (ablation): the Nesterov
-momentum is then only rescaled to the Frobenius norm of an orthogonal update of the same shape. And
-`sv_power=p` (ablation, replaces Newton-Schulz): the update is U S^p V^T from the SVD U S V^T of the Nesterov
-momentum, rescaled to that same Frobenius norm; p=0 is exact orthogonalization, p=1 is `orthogonalize=False`.
+overwrites `grad` in place (upstream does `grad.lerp_`), so a shadow optimizer or ghost stepping after Muon on
+the same gradients sees them unchanged. Added, as ablations (DESIGN.md): `orthogonalize=False` and `sv_power=p`.
 """
 
 import torch
@@ -33,13 +30,12 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, orthogonal
     update = grad.lerp(momentum, beta) if nesterov else momentum
     if update.ndim == 4:  # conv filters
         update = update.view(len(update), -1)
-    if sv_power is not None:
-        U, S, Vh = torch.linalg.svd(update.float(), full_matrices=False)
-        update = (U * S.pow(sv_power)) @ Vh
-        update = update * (min(update.shape[-2:]) ** 0.5 / (update.norm() + 1e-7))
-    elif orthogonalize:
+    if sv_power is None and orthogonalize:
         update = zeropower_via_newtonschulz5(update, steps=ns_steps)
-    else:  # same Frobenius norm as an orthogonal update: sqrt(min(n_out, n_in))
+    else:  # ablations, rescaled to the Frobenius norm of an orthogonal update, sqrt(min(n_out, n_in))
+        if sv_power is not None:  # U S^p V^T of the momentum (p=0: exact orthogonalization)
+            U, S, Vh = torch.linalg.svd(update.float(), full_matrices=False)
+            update = (U * S.pow(sv_power)) @ Vh
         update = update * (min(update.shape[-2:]) ** 0.5 / (update.norm() + 1e-7))
     update *= max(1, update.size(-2) / update.size(-1)) ** 0.5
     return update

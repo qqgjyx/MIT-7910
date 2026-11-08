@@ -23,13 +23,13 @@ changes `optimizer`. `shadow` lists optimizers whose state is accumulated during
 rate 0 (the state update of SGD momentum, AdamW and Muon does not depend on the learning rate, and with
 lr 0 the parameters are untouched), so a fork can start any of them warm.
 
-`ghost` (optional, default none) lists update rules run *open-loop* beside the run (`optim.Ghost`): each is a copy
-of the model, from the same initialization, updated by that rule (its own state, hyperparameters and schedule) on
-the run's gradients, which are computed at the run's weights, so the copy never feeds back into them. A ghost of
-the run's own rule reproduces the run exactly. Ghost checkpoints go to the sibling run directory
-`<name>__ghost_<rule>/` (its `config.yaml` has `optimizer: <rule>` and `ghost_of`), at the run's `log.ckpt_steps`.
-Not with forks. `optim.muon.orthogonalize: false` (ablation) replaces Muon's Newton-Schulz step by rescaling the
-Nesterov momentum to the Frobenius norm of an orthogonal update of the same shape.
+`ghost` (optional, default none) lists update rules run *open-loop* beside the run (`optim.Ghost`): each is a copy of
+the model, from the same initialization, updated by that rule (own state, hyperparameters, schedule) on the run's
+gradients, so the copy never feeds back. A ghost of the run's own rule reproduces the run. Checkpoints go to
+`<name>__ghost_<rule>/` (its `config.yaml` has `optimizer: <rule>` and `ghost_of`), at the run's `log.ckpt_steps`. Not
+with forks. `optim.muon.orthogonalize: false` (Nesterov momentum rescaled to the Frobenius norm of an orthogonal update) and
+`sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former)
+are Muon ablations.
 
 Step grids (`log.eval_steps`, `log.ckpt_steps`, `measure.steps`) are `{every: N, geometric: K, extra: [...]}`:
 the union of `0, N, 2N, ...`, `K` log-spaced steps in `[1, max_steps]`, the `extra` steps, and

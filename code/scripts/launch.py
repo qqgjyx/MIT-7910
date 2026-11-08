@@ -16,8 +16,8 @@ A run that sets `fork.parent` starts from the parent's config.yaml instead of `b
 have been launched), so forks inherit the parent's model, schedule and measurements.
 
 Usage:
-    python scripts/launch.py configs/suites/x.yaml [--partition normal|preemptable] [--gpu-type h200]
-        [--per-gpu K] [--time HH:MM:SS] [--max-concurrent N] [--only REGEX] [--after JOBID] [--exclude NODES]
+    python scripts/launch.py configs/suites/x.yaml [--partition NAME] [--gpu-type h200]
+        [--per-gpu K] [--gpus N] [--time HH:MM:SS] [--max-concurrent N] [--only REGEX] [--after JOBID] [--exclude NODES]
         [--dry-run] [--local] [--force]
 
 --after JOBID starts the array once job JOBID (e.g. the parents' array) has ended, so forks can be
@@ -26,8 +26,8 @@ submitted together with their parents.
 The cluster is OPTSPLIT_CLUSTER (default orcd). ORCD: normal = mit_normal_gpu (6 h per job, 2 GPUs per
 user); preemptable = mit_preemptable (48 h, 4 GPUs, jobs can be killed). FAS RC Cannon (fasrc): normal = gpu
 (A100), preemptable = gpu_requeue (mixed GPUs, can be killed), test = gpu_test (A100 MIG slices, 12 h), hsph =
-hsph_gpu (H200); --gpu-type becomes a node constraint, and `any` means a full A100, H100 or H200 (gpu_requeue also
-has small MIG slices). All requeue: unfinished runs resume from latest.pt in the next job.
+hsph_gpu (H200); --gpu-type becomes a node constraint, and `any` the partition's own GPU types (any_gpu in
+CLUSTERS). All requeue: unfinished runs resume from latest.pt in the next job.
 """
 
 import argparse

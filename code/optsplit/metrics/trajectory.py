@@ -8,6 +8,7 @@ checkpoints at t, t+1 and t+2), curvature of the training loss, and internals on
 import argparse
 import json
 import math
+from functools import lru_cache
 
 import torch
 import torch.nn.functional as F
@@ -40,6 +41,23 @@ def matrix_stats(Ws):
 
 def hidden(state):
     return [v for k, v in state.items() if k.startswith('transformer.h.') and v.ndim == 2]
+
+
+def ckpt_series(name):
+    """{step: matrix_stats of the block matrices} over the checkpoints of run `name`, plus `update_align` (cosine of
+    consecutive updates, block matrices only) where the steps s, s+1, s+2 exist."""
+    d = run_dir(name) / 'ckpt'
+    steps = sorted(int(p.stem) for p in d.glob('*.pt'))
+    load = lru_cache(maxsize=3)(lambda s: hidden(torch.load(d / f'{s:07d}.pt', map_location='cpu')['model']))
+    out = {}
+    for s in steps:
+        out[s] = matrix_stats(load(s))
+        if s + 1 in steps and s + 2 in steps:
+            W, W1, W2 = load(s), load(s + 1), load(s + 2)
+            u = torch.cat([(b - a).flatten() for b, a in zip(W1, W)])
+            v = torch.cat([(c - b).flatten() for c, b in zip(W2, W1)])
+            out[s]['update_align'] = F.cosine_similarity(u, v, dim=0).item()
+    return out
 
 
 @torch.no_grad()

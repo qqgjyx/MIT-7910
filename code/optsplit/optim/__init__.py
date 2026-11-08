@@ -86,26 +86,17 @@ class Shadow:
 
 
 class Ghost:
-    """Open-loop copies of the model (next steps (ii)): for each rule in `cfg.ghost`, a copy of the model that starts
-    at the run's initialization and is updated by that rule (its own state, hyperparameters and learning rate
-    schedule) on the gradients of the *run*, computed at the run's weights. The copy never feeds back into the
-    gradients it receives. A ghost of the run's own rule reproduces the run."""
+    """Open-loop copies of the model, one per rule in `cfg.ghost`, updated on the run's gradients (see DESIGN.md)."""
 
     def __init__(self, model, cfg):
-        self.models, self.opts = {}, {}
-        for rule in cfg.get('ghost', []) or []:
-            g = copy.deepcopy(model)
-            for p in g.parameters():
-                p.requires_grad_(True)
-                p.grad = None
-            self.models[rule] = g
-            self.opts[rule] = build_optimizer(rule, g, cfg)
+        self.models = {rule: copy.deepcopy(model) for rule in cfg.get('ghost', []) or []}
+        self.opts = {rule: build_optimizer(rule, g, cfg) for rule, g in self.models.items()}
 
     def step(self, model, mult):
         """After the run's optimizer step (which must leave .grad untouched), before zero_grad."""
         for rule, g in self.models.items():
             for p, q in zip(model.parameters(), g.parameters()):
-                q.grad = None if p.grad is None else p.grad.detach().clone()
+                q.grad = None if p.grad is None else p.grad.clone()
             set_lr(self.opts[rule], mult)
             self.opts[rule].step()
             self.opts[rule].zero_grad(set_to_none=True)

@@ -20,38 +20,20 @@ import matplotlib
 import matplotlib.ticker
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import torch
+import numpy as np
 
-from optsplit.config import load_config, run_dir
-from optsplit.metrics.trajectory import hidden, matrix_stats
+from optsplit.analysis.io import Run
+from optsplit.analysis.rank_metrics import COLORS, NAMES
+from optsplit.metrics.trajectory import ckpt_series
 
 KEYS = ('stable_rank', 'eff_rank', 'spectral', 'sv_spread', 'update_align')
 
 
-def series(name):
-    d = run_dir(name) / 'ckpt'
-    steps = sorted(int(p.stem) for p in d.glob('*.pt'))
-    load = lambda s: hidden(torch.load(d / f'{s:07d}.pt', map_location='cpu')['model'])
-    out = {}
-    for s in steps:
-        W = load(s)
-        rec = matrix_stats(W)
-        if s + 1 in steps and s + 2 in steps:
-            W1, W2 = load(s + 1), load(s + 2)
-            a = torch.cat([(b - c).flatten() for b, c in zip(W1, W)])
-            b = torch.cat([(c - e).flatten() for c, e in zip(W2, W1)])
-            rec['update_align'] = torch.nn.functional.cosine_similarity(a, b, dim=0).item()
-        out[s] = rec
-    return out
-
-
 def figure(path, out):
-    import numpy as np
     res = json.loads(Path(path).read_text())
     cols = (('stable_rank', 'stable rank of $W$'), ('sv_spread', r'$\sigma_1/\sigma_{\rm median}$ of $W$'),
             ('update_align', 'cosine of consecutive updates'))
-    color = {'adamw': 'C0', 'muon': 'C1'}
-    label = {'adamw': 'AdamW', 'muon': 'Muon'}
+    color, label = COLORS, NAMES
     fig, axes = plt.subplots(2, 3, figsize=(10, 4.6), sharex=True)
     for i, (row, (run, ghost)) in enumerate(zip(axes, (('adamw', 'muon'), ('muon', 'adamw')))):
         keys = [k for k in res if k.split('/')[-1].startswith(f'{run}_ghost_d')]
@@ -71,9 +53,9 @@ def figure(path, out):
                 ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
                 ax.set_yticks([2, 4, 8, 16])
             ax.set_title(title, fontsize=9)
-            if i == 1:
-                ax.set_xlabel('step')
         row[1].legend(*row[0].get_legend_handles_labels(), fontsize=7, frameon=False, loc='upper left')
+    for ax in axes[1]:
+        ax.set_xlabel('step')
     fig.tight_layout()
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
@@ -93,9 +75,9 @@ def main():
     res = {}
     for pair in args.pairs:
         parent, ref = pair.split(':')
-        rule = load_config(run_dir(ref) / 'config.yaml').optimizer
+        rule = Run(ref).optimizer
         ghost = f'{parent}__ghost_{rule}'
-        res[parent] = {'parent': series(parent), 'ghost': series(ghost), 'reference': series(ref),
+        res[parent] = {'parent': ckpt_series(parent), 'ghost': ckpt_series(ghost), 'reference': ckpt_series(ref),
                        'names': {'parent': parent, 'ghost': ghost, 'reference': ref}}
         print(f'done {pair}', flush=True)
     (out / 'ghost.json').write_text(json.dumps(res))

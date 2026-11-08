@@ -4,7 +4,8 @@ stable rank and sigma_1/sigma_median of the block matrices, the cosine of consec
 exist, and the paired training-loss gap to the A parent (same batches, logged every 10 steps).
 
 The spectra are also given as a fraction of the way from the A parent to the B parent at the same step
-(parents interpolated in log step between their checkpoints): 0 = still A, 1 = at B.
+(parents interpolated in log step between their checkpoints): 0 = still A, 1 = at B. The parents are the data order 0
+runs (`*_d0`) of the --parents suites, the runs the forks branch from.
 
     python -m optsplit.analysis.swap_timescale 'ts10m_forks_dense/*' --parents ts10m_main ts10m_parent_late \
         --out <dir>
@@ -21,38 +22,16 @@ import json
 from pathlib import Path
 
 import numpy as np
-import torch
 
-from optsplit.config import root_dir, run_dir
-from optsplit.metrics.trajectory import hidden, matrix_stats
+from optsplit.analysis.io import Run, load_runs
+from optsplit.analysis.rank_metrics import NAMES
+from optsplit.metrics.trajectory import ckpt_series
 
 WINDOWS = ((0, 10), (10, 30), (30, 100), (100, 300), (300, 1000))
 
 
-def ckpt_steps(name):
-    return sorted(int(p.stem) for p in (run_dir(name) / 'ckpt').glob('*.pt'))
-
-
-def stats(name, steps=None):
-    d = run_dir(name) / 'ckpt'
-    all_steps = ckpt_steps(name)
-    load = lambda s: hidden(torch.load(d / f'{s:07d}.pt', map_location='cpu')['model'])
-    out = {}
-    for s in steps if steps is not None else all_steps:
-        W = load(s)
-        rec = matrix_stats(W)
-        if s + 1 in all_steps and s + 2 in all_steps:
-            W1, W2 = load(s + 1), load(s + 2)
-            a = torch.cat([(b - c).flatten() for b, c in zip(W1, W)])
-            b = torch.cat([(c - e).flatten() for c, e in zip(W2, W1)])
-            rec['update_align'] = torch.nn.functional.cosine_similarity(a, b, dim=0).item()
-        out[s] = rec
-    return out
-
-
 def train_loss(name):
-    recs = [json.loads(l) for l in open(run_dir(name) / 'metrics.jsonl')]
-    return {r['step']: r['loss'] for r in recs if r.get('kind') == 'train'}
+    return {r['step']: r['loss'] for r in Run(name).records_of('train')}
 
 
 def interp(curve, s, key):
@@ -61,30 +40,18 @@ def interp(curve, s, key):
     return float(np.interp(np.log1p(s), np.log1p(xs), [curve[t][key] for t in xs]))
 
 
-def config(name):
-    import yaml
-    return yaml.safe_load(open(run_dir(name) / 'config.yaml'))
-
-
 def analyse(forks, parent_suites):
-    parents = {}
+    parents, loss_p = {}, {}
     for suite in parent_suites:
-        for d in sorted((root_dir() / 'runs' / suite).iterdir()):
-            opt = config(f'{suite}/{d.name}')['optimizer']
-            parents.setdefault(opt, {}).update(stats(f'{suite}/{d.name}'))
-            print(f'parent {suite}/{d.name}', flush=True)
-    loss_p = {}
-    for opt in parents:
-        loss_p[opt] = {}
-        for suite in parent_suites:
-            for d in (root_dir() / 'runs' / suite).iterdir():
-                if config(f'{suite}/{d.name}')['optimizer'] == opt:
-                    loss_p[opt].update(train_loss(f'{suite}/{d.name}'))
+        for r in load_runs(f'{suite}/*_d0'):  # the forks branch from data order 0, so their parents are its runs
+            parents.setdefault(r.optimizer, {}).update(ckpt_series(r.id))
+            loss_p.setdefault(r.optimizer, {}).update(train_loss(r.id))
+            print(f'parent {r.id}', flush=True)
     res = {}
     for f in forks:
         a, b = f.split('/')[-1].split('_at')[0].split('_to_')
         k = int(f.split('_at')[-1])
-        st = {s: v for s, v in stats(f).items() if s >= k}
+        st = {s: v for s, v in ckpt_series(f).items() if s >= k}
         for s, v in st.items():
             for key in ('stable_rank', 'sv_spread'):
                 va, vb = interp(parents[a], s, key), interp(parents[b], s, key)
@@ -105,20 +72,15 @@ def analyse(forks, parent_suites):
 
 
 def half_time(st, key):
-    for t in sorted(st):
-        if key in st[t] and st[t][key] >= 0.5:
-            return t
-    return None
+    return next((t for t in sorted(st) if st[t].get(key, 0) >= 0.5), None)
 
 
 def figure(res, out, ks=(400, 1000, 2500, 6000), horizon=3000):
-    """Report figure: rows AdamW to Muon and Muon to AdamW; columns the loss gap to the old rule's run (the
-    parents' gap at the same step dotted), the stable rank as a fraction of the way to the new rule's run, and the
-    update cosine; one line per swap step in `ks`."""
+    """Report figure: rows AdamW to Muon and Muon to AdamW, one line per swap step in `ks`."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    label = {'adamw': 'AdamW', 'muon': 'Muon'}
+    label = NAMES
     fig, axes = plt.subplots(2, 3, figsize=(10, 4.6), sharex=True)
     for row, a in zip(axes, ('adamw', 'muon')):
         fs = sorted((r for r in res.values() if r['a'] == a and r['k'] in ks), key=lambda r: r['k'])
@@ -160,13 +122,7 @@ def main():
     if args.figure:
         figure(json.loads(Path(args.figure).read_text()), args.out)
         return
-    forks = []
-    for p in args.forks:
-        if '*' in p:
-            suite = p.split('/')[0]
-            forks += [f'{suite}/{d.name}' for d in sorted((root_dir() / 'runs' / suite).iterdir()) if '_to_' in d.name]
-        else:
-            forks.append(p)
+    forks = [r.id for r in load_runs(args.forks) if '_to_' in r.path.name]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     res = analyse(forks, args.parents)
