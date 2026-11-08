@@ -23,13 +23,13 @@
 \title{How AdamW and Muon Train a Small Language Model\\[1pt]
 \normalfont Next steps (ii) and (iii) of the checkpoint}
 \author{Juntang Wang}
-\date{November 6, 2026}
+\date{November 8, 2026}
 
 \begin{document}
 \maketitle
 \vspace{-0.8em}
 
-\paragraph{Summary.} The Step 2 runs reproduce on a new cluster. (ii)~The update cosine comes from the rule: it differs on pure noise. Stable rank and $\sigma_1/\sigma_{\mathrm{median}}$ are ordered by the rule on real gradients; the spectral norm is not. (iii)~Weight decay does not explain Muon's speed, and without orthogonalization Muon ends worse than AdamW. Speed and spectra move together as orthogonalization is weakened, so the runs cannot say whether the spectra cause the speed; after a swap at step 1000 the loss gap forms faster than the stable rank moves.
+\paragraph{Summary.} (ii)~The update cosine follows the rule; so do stable rank and $\sigma_1/\sigma_{\mathrm{median}}$, but the spectral norm does not. (iii)~Weight decay does not explain Muon's speed; without orthogonalization Muon is worse; speed and spectra move together, so the cause is open; after a swap the loss moves before the stable rank.
 
 %% =================================================================
 %% Setup and reproduction
@@ -37,9 +37,7 @@
 \section{Setup and reproduction}
 \label{sec:setup}
 
-TinyStories-10M, the checkpoint's settings: AdamW at $2\cdot10^{-3}$, Muon at 0.01, 10{,}000 steps, data orders 0 to 2.
-
-Run on FAS RC Cannon. Spectral metrics are means over the 36 block weight matrices, as in the checkpoint. The rerun agrees with the checkpoint (\cref{tab:repro}).
+TinyStories-10M on FAS RC Cannon, the checkpoint's settings (AdamW $2\cdot10^{-3}$, Muon 0.01, 10{,}000 steps, data orders 0 to 2); spectral metrics are means over the 36 block matrices. The rerun agrees (\cref{tab:repro}).
 
 \begin{table}[H]
 \centering
@@ -70,11 +68,11 @@ active MLP units & $0.120 \pm 0.001$ ($0.120$) & $0.222 \pm 0.001$ ($0.222$) \\
 \subsection{Rules without learning}
 \label{sec:noise}
 
-Each rule updates one block matrix of each shape for 10{,}000 steps at the runs' learning rates, on synthetic gradients: noise, or a rank-4 direction plus noise of equal norm. Nothing is learned (\cref{fig:noise}).
+On synthetic gradients (noise, or a rank-4 signal plus noise), each rule updates one matrix for 10{,}000 steps (\cref{fig:noise}).
 
-\textbf{Update cosine follows the rule.} On noise, consecutive updates have cosine 0.90 under AdamW and 0.66 to 0.76 under Muon, close to the real runs (0.89 and 0.74 at loss 1.81).
+\textbf{Update cosine follows the rule:} on noise, 0.90 for AdamW and 0.66 to 0.76 for Muon, close to the real runs (0.89, 0.74).
 
-\textbf{The spectra do not.} On noise, neither rule moves the stable rank of $W$. With the rank-4 signal both fall to about its rank, AdamW's within a few hundred steps and Muon's by the end (step 1000: 3.7 against 9.9).
+\textbf{The spectra do not:} on noise the stable rank is unchanged; with the rank-4 signal both fall to about 4 (step 1000: AdamW 3.7, Muon 9.9).
 
 \begin{figure}[H]
 \centering
@@ -89,18 +87,16 @@ Each rule updates one block matrix of each shape for 10{,}000 steps at the runs'
 \subsection{Ghosts on real gradients}
 \label{sec:ghost}
 
-Each run carries a \emph{ghost}: a copy of the initial weights updated by the other optimizer's rule on the run's own gradients. The ghost never feeds back into the run. With the two runs this makes a $2\times2$ design, rule $\times$ gradient stream (\cref{tab:ghost}, \cref{fig:ghost}).
+\emph{Ghost}: a copy of the initial weights updated by the other rule on the run's own gradients, never fed back (\cref{tab:ghost,fig:ghost}).
 
-\textbf{The ordering follows the rule.} Muon's rule on AdamW's gradients ends at stable rank 87, against 40 for the AdamW run and 75 for the Muon run. AdamW's rule on Muon's gradients ends at 13. $\sigma_1/\sigma_{\mathrm{median}}$ and update cosine go the same way. Both ghosts go further than the run with their rule (87 against 75, 13 against 40): the gradient stream matters too.
+\textbf{The ordering follows the rule:} on the same gradients Muon's rule gives the higher stable rank (87 against 40; 75 against 13).
 
-\textbf{The spectral norm does not.} At step 10{,}000, on AdamW's gradients Muon's rule gives 10.9 and AdamW's 5.9 to 6.1; on Muon's gradients, 7.5 and 7.7 to 7.8. Which rule is larger depends on the gradient stream.
-
-\textbf{Not shown.} A ghost is not evaluated as a model, so this says nothing about $\lambda_{\max}$, MLP sparsity or the loss.
+\textbf{The spectral norm does not:} which rule is larger depends on the gradient stream (10.9 against 5.9 to 6.1; 7.5 against 7.7 to 7.8).
 
 \begin{table}[H]
 \centering
 \small
-\caption{The $2\times2$ design at step 10{,}000.}
+\caption{The $2\times2$ design at step 10{,}000; range over data orders 0 to 2.}
 \label{tab:ghost}
 \begin{tabular}{l l ccc}
 \toprule
@@ -134,11 +130,9 @@ Muon  & AdamW (ghost)& 87.0 to 87.2 & 2.77 to 2.80 & 0.70 \\
 \subsection{What the speed needs}
 \label{sec:ablate}
 
-Three ablations: AdamW without weight decay, Muon with weight decay 0.02, and Muon without orthogonalization, its momentum rescaled to an orthogonal update's norm (\cref{tab:ablate}).
+\textbf{Weight decay is not the reason (\cref{tab:ablate}):} Muon has none and is faster; adding or removing it changes final loss by 0.005 to 0.012.
 
-\textbf{Weight decay is not the reason.} Muon has none and is already faster. Removing it from AdamW costs 0.005 to 0.012 in final loss; adding it to Muon gains 0.006 to 0.011, and Muon still reaches AdamW's final loss at step 7750 (data order 0).
-
-\textbf{Without orthogonalization Muon ends worse than AdamW.} This holds at every learning rate tried (last three rows). At learning rate 0.01 the two orders that fail end with stable rank 3.6 and 5.5, the order that trains with 34.8; the collapse comes with the failure, and the runs do not show whether it causes it.
+\textbf{Without orthogonalization (momentum rescaled to an orthogonal update's norm) Muon is worse:} worse than AdamW at every learning rate; at 0.01 the two failing orders collapse to stable rank 3.6 and 5.5 (the order that trains: 34.8).
 
 \begin{table}[H]
 \centering
@@ -170,13 +164,9 @@ Muon, no orthogonalization, lr 0.03           & 4.078 &       &       \\
 \subsection{Dose-response}
 \label{sec:dose}
 
-Muon's update with its singular values raised to a power $p$: $p=0$ is exact orthogonalization (an exact SVD, not Muon's Newton-Schulz approximation), $p=1$ is none. The runs use Muon at learning rate 0.01 and data order 0 (\cref{tab:dose}).
+Update singular values raised to $p$: $p=0$ is exact orthogonalization, $p=1$ none (\cref{tab:dose}; Muon, lr 0.01, order 0).
 
-\textbf{Speed and spectra move together with $p$.} As $p$ grows, the run reaches loss 1.81 later, and its stable rank and $\sigma_1/\sigma_{\mathrm{median}}$ move toward AdamW's.
-
-\textbf{$p=0.75$ on other data orders.} On orders 0 and 1 the stable rank is close to AdamW's (33.4 to 33.5 against 32.4 to 32.9) and loss 1.81 comes at about the same step (1379 to 1394 against 1426 to 1469); final validation loss is worse (1.354 to 1.357 against 1.339 to 1.345). Order 2 stalls from about step 60, reaches loss 1.81 at step 5578 with stable rank 18.3, and ends at 1.659. At learning rate 0.003 (order 0), $p=0.75$ has stable rank 25.6, below AdamW's, and reaches loss 1.81 at step 1298 against 1469 for AdamW at its own learning rate $2\cdot10^{-3}$; $p=1$ reaches it at step 2926.
-
-\textbf{Not shown.} $p$ changes both, so the table cannot say which causes which.
+\textbf{Speed and spectra move together with $p$,} toward AdamW; the cause is open. $p=0.75$ on orders 0 and 1 is close to AdamW in stable rank and in the step reaching loss 1.81 (33.4 to 33.5 against 32.4 to 32.9; 1379 to 1394 against 1426 to 1469); order 2 stalls and ends at 1.659.
 
 \begin{table}[H]
 \centering
@@ -204,13 +194,11 @@ AdamW       & 1469 & 32.9 & 7.99 & 1.339 \\
 \subsection{Swap timescale}
 \label{sec:swap}
 
-A run trains with one rule to step $k$ and then switches to the other. These runs are from ORCD (H200, data order 0) and are compared only with their own parents. The loss gap is the swapped run's training loss minus the old rule's run, on the same batches (\cref{fig:swap}).
+Swap rules at step $k$ (ORCD, order 0, compared only with the swap's own parents; \cref{fig:swap}).
 
-\textbf{From step 1000 on, the loss moves before the spectra.} AdamW to Muon at step 1000: the gap is $-0.062$ at $+100$ steps (parents' gap $-0.089$) while the stable rank is 9\% of the way to Muon's; it reaches 43\% at $+1000$. At step 2500: $-0.033$ at $+100$, stable rank 5\%. The update cosine is Muon's (0.70) from the first step.
+\textbf{From step 1000 on, the loss moves before the stable rank:} AdamW to Muon, at $+100$ steps the loss gap is $-0.062$ (parents $-0.089$) while the stable rank has moved 9\%.
 
-\textbf{Muon to AdamW.} At step 1000 the gap spikes ($+0.34$ at $+10$, probably AdamW's moments starting from zero), then stays near $+0.07$ from $+50$ on (parents' $+0.10$); the stable rank is 16\% of the way at $+50$. At step 400 the stable rank is 73\% of the way by $+25$, together with the loss spike, so there the two move together.
-
-\textbf{Not shown.} One data order; the restart spike confounds the first 30 steps in this direction.
+\textbf{Exception:} Muon to AdamW at step 400, the stable rank has moved 73\% by $+25$, together with the loss spike.
 
 \begin{figure}[H]
 \centering
@@ -218,15 +206,5 @@ A run trains with one rule to step $k$ and then switches to the other. These run
 \caption{Swaps at steps 400, 1000, 2500 and 6000. Dotted: the parents' loss gap.}
 \label{fig:swap}
 \end{figure}
-
-%% =================================================================
-%% Loss per step
-%% =================================================================
-\subsection{Loss per step}
-\label{sec:decomp}
-
-To second order a step $s$ changes the loss by $-g^\top s+\tfrac12 s^\top H s$; let $R$ be the ratio of the curvature term to the first-order gain. On 256 fresh sequences (ORCD, one data order), $R$ is 0.97 to 1.06 for AdamW and 0.92 to 0.98 for Muon at losses 1.8 to 1.4: on fresh data curvature almost cancels the step's first-order gain for both, and Muon's is a little lower from loss 1.6.
-
-\textbf{Not shown.} Why, and whether a few percent is more than noise.
 
 \end{document}
