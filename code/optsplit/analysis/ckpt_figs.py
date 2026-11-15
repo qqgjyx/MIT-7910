@@ -240,7 +240,8 @@ def swap_traj(keys, out, suite=('ts10m_forks_dense',), pure=('ts10m_traj',), siz
                 ax.set_xscale('log')
                 if k == 'lambda_max':
                     ax.set_yscale('log')
-            row[0].set_ylabel(f'{NAMES[a]} → {NAMES[b]}')
+            label = f'{NAMES[a]} → {NAMES[b]}'
+            row[0].set_ylabel(label if len(label) < 16 else f'{NAMES[a]} →\n{NAMES[b]}')  # long: two lines
         for ax, k in zip(axes[0], keys):
             ax.set_title(METRICS[k][1])
         for ax in axes[-1]:
