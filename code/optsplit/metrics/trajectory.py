@@ -67,6 +67,9 @@ def internals(model, x):
     the centred final hidden states (after the last LayerNorm) over all tokens."""
     tr = model.transformer
     B, T = x.shape
+    # in full float32: with nearly collinear features (early under the mse loss) the outputs are small differences of
+    # large terms, and TF32 products would fail the check against the model's forward below
+    tf32, torch.backends.cuda.matmul.allow_tf32 = torch.backends.cuda.matmul.allow_tf32, False
     h = tr.wte(x) + tr.wpe(torch.arange(T, device=x.device))
     mask = torch.ones(T, T, dtype=torch.bool, device=x.device).tril()
     ent, sink, active = [], [], []
@@ -85,7 +88,8 @@ def internals(model, x):
         h = h + blk.mlp.c_proj(F.gelu(pre))
     z = tr.ln_f(h)
     ref = model(x)
-    err = ((model.lm_head(z) - ref).abs().max() / ref.abs().max()).item()  # TF32 on GPU: about 1e-3
+    err = ((model.lm_head(z) - ref).abs().max() / ref.abs().max()).item()
+    torch.backends.cuda.matmul.allow_tf32 = tf32
     assert err < 1e-2, f'internals forward differs from the model by {err:.2g} of the largest logit'
     z = z.reshape(-1, z.size(-1))
     return dict(attn_entropy=sum(ent) / len(ent), attn_sink=sum(sink) / len(sink),
