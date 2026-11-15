@@ -1,0 +1,19 @@
+# The d0 runs of ts10m_mse_main and ts10m_mse_sgd again with the sharpness measured every 50 steps (the main runs
+# measure every 500), for the figure of each optimizer's sharpness against its stability threshold
+# (results/ts10m_mse/sharpness.pdf). No checkpoints; stored outputs thinned to 4 positions per probe sequence.
+suite: ts10m_mse_eos
+base: ../base/tinystories_10m.yaml
+overrides:
+  train.loss: mse
+  optim.sgd.lr: 0.02
+  optim.adamw.lr: 4.0e-3
+  optim.muon.lr: 0.005
+  measure.steps: {every: 50, geometric: 30}
+  measure.anatomy: false
+  measure.delta_loss: false
+  log.eval_steps: {every: 500, geometric: 0}
+  log.ckpt_steps: {every: 0, geometric: 0}
+  probe.positions_per_seq: 4
+name: "{optimizer}_d{train.data_seed}"
+runs:
+  - {optimizer: [sgd, adamw, muon], train.data_seed: 0}
