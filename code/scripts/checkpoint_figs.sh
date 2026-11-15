@@ -50,7 +50,7 @@ python -m optsplit.analysis.rank_metrics "$MAIN/*_d[012]" "$SGD/*" --max-loss "$
     --report "$LEVEL_SGD" --out "$OUT/rank_sgd" > "$OUT/rank_sgd.txt"
 python -m optsplit.analysis.ckpt_figs ranking --metrics "$OUT/rank/metrics.json" --pairs adamw/muon --level "$LEVEL" \
     --keys stable_rank eff_rank spectral sv_spread update_align lambda_max hess_trace mlp_active dist_init_rel \
-    --size 3.4 1.35 --xticks 0.2 0.5 1 2 5 --out "$F/ranking.pdf"
+    --size 3.4 1.3 --xticks 0.2 0.5 1 2 5 --out "$F/ranking.pdf"
 python optsplit/analysis/metric_ratios.py "$OUT/rank/metrics.json" A "$LEVEL" > "$OUT/table_adamw_muon.tex"
 python optsplit/analysis/metric_ratios.py "$OUT/rank_sgd/metrics.json" B "$LEVEL_SGD" > "$OUT/table_sgd.tex"
 # Fig 3: metrics of the swapped runs against the step
