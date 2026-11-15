@@ -24,6 +24,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from optsplit.analysis.distance import js_divergence
 from optsplit.analysis.io import load_runs
 from optsplit.analysis.ngram import ngram_logp
+from optsplit.loss import token_loss
 
 # key: (group, label); the order is that of the figure pages
 METRICS = {
@@ -85,12 +86,13 @@ class Refs:
         self.rare, self.freq = f <= lo, f >= hi
 
 
-def pred_metrics(logp, y, refs):
+def pred_metrics(logp, y, refs, z=None):
+    """`z`: the raw outputs of an mse run (then the loss on the targets is the squared error, and p has zeros)."""
     logp = logp.float()
     p = logp.exp()
-    nll = -logp.gather(1, y[:, None])[:, 0]
+    nll = -logp.gather(1, y[:, None])[:, 0] if z is None else token_loss(z.float(), y, 'mse')
     conf, pred = p.max(1)
-    return dict(entropy=-(p * logp).sum(1).mean().item(), confidence=conf.mean().item(),
+    return dict(entropy=-torch.where(p > 0, p * logp, 0.).sum(1).mean().item(), confidence=conf.mean().item(),
                 ece=ece(conf, pred == y), acc=(pred == y).float().mean().item(),
                 loss_freq=nll[refs.freq].mean().item(), loss_rare=nll[refs.rare].mean().item(),
                 rare_minus_freq=(nll[refs.rare].mean() - nll[refs.freq].mean()).item(),
@@ -121,7 +123,7 @@ def run_points(run, refs, cache):
             add('edge_fraction', loss, r['precond_lambda_max'] * r['lr'] * (1 - lr_beta) / (2 + 2 * lr_beta))
     key = f'{run.id}:{run.path.joinpath("preds", "targets.pt").stat().st_mtime}'
     if key not in cache:
-        cache[key] = {s: pred_metrics(run.logp(s), run.targets, refs) for s in run.pred_steps if s in ev}
+        cache[key] = {s: pred_metrics(run.logp(s), run.targets, refs, run.outputs(s)) for s in run.pred_steps if s in ev}
     for s, m in cache[key].items():
         for k, v in m.items():
             add(k, ev[s]['train_loss'], v)

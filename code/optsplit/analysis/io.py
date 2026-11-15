@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from optsplit.config import _wrap, load_yaml, root_dir, run_dir
+from optsplit.loss import log_probs
 
 
 def get_key(rec, key):
@@ -32,7 +33,8 @@ def flatten(d, prefix=''):
 
 @lru_cache(maxsize=32)
 def _load_logp(path):
-    return torch.load(path, map_location='cpu')['logp']
+    d = torch.load(path, map_location='cpu')  # mse runs store the raw outputs z instead (probe.py)
+    return d['logp'] if 'logp' in d else log_probs(d['z'].float(), 'mse').half()
 
 
 def _steps(directory, suffix):
@@ -83,6 +85,10 @@ class Run:
     def logp(self, step):
         return _load_logp(str(self.path / 'preds' / f'{step:07d}.pt'))
 
+    def outputs(self, step):
+        """The raw outputs z of an mse run on the probe (None for cross-entropy, which stores log-probabilities)."""
+        return torch.load(self.path / 'preds' / f'{step:07d}.pt', map_location='cpu').get('z')
+
     @cached_property
     def targets(self):
         return torch.load(self.path / 'preds' / 'targets.pt', map_location='cpu')['y']
@@ -107,6 +113,10 @@ class Run:
         """{step: metrics dict} from function_metrics/<step>.json."""
         d = self.path / 'function_metrics'
         return {s: json.loads((d / f'{s:07d}.json').read_text()) for s in _steps(d, '.json')}
+
+    @property
+    def loss(self):
+        return self.cfg.train.get('loss', 'ce')
 
     @property
     def optimizer(self):

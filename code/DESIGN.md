@@ -31,6 +31,13 @@ with forks. `optim.muon.orthogonalize: false` (Nesterov momentum rescaled to the
 `sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former)
 are Muon ablations.
 
+`train.loss` is `ce` (default) or `mse`: the squared error between the outputs z (the logits, no softmax) and the
+one-hot target, summed over the classes and averaged over tokens (Cohen et al. 2021). It is the loss everywhere:
+training, the probe's `train_loss` and `val_loss`, `delta_loss`, every Hessian and gradient measurement
+(`model.loss`), the loss on the targets in the analysis. With `mse` the predicted distribution is
+p = max(z, 0) normalized to sum 1 (uniform if no entry is positive), since the minimizer of the loss is the
+conditional probability vector itself (`optsplit.loss`).
+
 Step grids (`log.eval_steps`, `log.ckpt_steps`, `measure.steps`) are `{every: N, geometric: K, extra: [...]}`:
 the union of `0, N, 2N, ...`, `K` log-spaced steps in `[1, max_steps]`, the `extra` steps, and
 `max_steps`. `optsplit.config.step_grid(spec, max_steps) -> sorted list[int]`. `log.fork_steps` is a plain
@@ -62,7 +69,7 @@ Prepared data: LM datasets have `train.bin`, `val.bin` (uint16 token ids) and `m
 `build_model(cfg) -> nn.Module` (GPT or SimpleCNN). Both have:
 
 - `model(x) -> logits` (GPT: `(B, T, V)` for every position; CNN: `(B, C)`).
-- `model.loss(x, y) -> scalar` mean cross-entropy.
+- `model.loss(x, y) -> scalar` mean loss (`train.loss`; `model.loss_kind`, set by `build_model`).
 - GPT also has `model.forward_embeds(tok_emb) -> logits`, where `tok_emb = model.embed(x)` is the
   `(B, T, d)` token-embedding output (position embeddings are added inside). Input-derivative metrics
   differentiate with respect to `tok_emb`; for the CNN the input is the image itself.
@@ -95,9 +102,11 @@ KellerJordan/Muon). AdamW state is `state[p]["exp_avg_sq"]`, `state[p]["step"]`.
   - `measure`: whatever `optsplit.measure.measure_step` returns (below), plus `lr`, `delta_loss`.
 - `preds/<step:07d>.pt`: `{"logp": float16 (N, V)}`, log-probabilities on the fixed validation probe
   (LM: `probe.n_seqs` sequences × `probe.positions_per_seq` fixed positions; image: `probe.n_seqs`
-  test images). `preds/targets.pt`: `{"y": int64 (N,)}`.
+  test images). `preds/targets.pt`: `{"y": int64 (N,)}`. With `train.loss: mse` the file is `{"z": float16 (N, V)}`,
+  the raw outputs; `analysis.io.Run.logp` derives the log-probabilities from them and `Run.outputs` returns z.
 - `ckpt/<step:07d>.pt`: `{"model": state_dict}` (float32 weights) at `log.ckpt_steps`. Step 0 is always
-  saved (needed for distance from initialization).
+  saved (needed for distance from initialization). With `log.ckpt_optimizer`, `opt/<step:07d>.pt`:
+  `{"optimizer": state_dict}` of the run's optimizer at the same steps.
 - `fork/<step:07d>.pt`: `{"model", "optimizer": {name: state_dict}}` with the run's own optimizer and
   every shadow optimizer, at `log.fork_steps`.
 - `latest.pt`: resume state. `done`: written when the run finished.

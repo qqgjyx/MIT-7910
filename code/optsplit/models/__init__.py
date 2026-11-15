@@ -9,13 +9,16 @@ from .gpt import GPT, GPTConfig
 def build_model(cfg, vocab_size=None, num_classes=None):
     m = cfg.model
     if cfg.task == 'gpt':
-        return GPT(GPTConfig(vocab_size=vocab_size, block_size=m.block_size, n_layer=m.n_layer,
-                             n_head=m.n_head, n_embd=m.n_embd, bias=m.bias,
-                             tie_weights=m.tie_weights))
-    if cfg.task == 'cnn':
-        return SimpleCNN(width=m.cnn_width, hidden=m.cnn_hidden, num_classes=num_classes,
-                         activation=m.activation)
-    raise ValueError(cfg.task)
+        model = GPT(GPTConfig(vocab_size=vocab_size, block_size=m.block_size, n_layer=m.n_layer,
+                              n_head=m.n_head, n_embd=m.n_embd, bias=m.bias,
+                              tie_weights=m.tie_weights))
+    elif cfg.task == 'cnn':
+        model = SimpleCNN(width=m.cnn_width, hidden=m.cnn_hidden, num_classes=num_classes,
+                          activation=m.activation)
+    else:
+        raise ValueError(cfg.task)
+    model.loss_kind = cfg.train.get('loss', 'ce')  # configs saved before the option have no train.loss
+    return model
 
 
 @contextmanager

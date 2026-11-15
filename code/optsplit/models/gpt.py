@@ -13,6 +13,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from ..loss import mean_loss
+
 
 @dataclass
 class GPTConfig:
@@ -81,6 +83,8 @@ class Block(nn.Module):
 
 
 class GPT(nn.Module):
+    loss_kind = 'ce'  # train.loss, set by build_model
+
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -123,4 +127,4 @@ class GPT(nn.Module):
 
     def loss(self, idx, targets):
         logits = self(idx)
-        return F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), targets.reshape(-1))
+        return mean_loss(logits.float().reshape(-1, logits.size(-1)), targets.reshape(-1), self.loss_kind)

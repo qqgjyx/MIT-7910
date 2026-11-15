@@ -2,8 +2,8 @@
 (image for the CNN, token embeddings of one sequence for the GPT), at fixed test points."""
 
 import torch
-from torch.nn import functional as F
 
+from ..loss import mean_loss, probs
 from ..models import GPT, double_backward_ok
 
 
@@ -101,13 +101,13 @@ def input_metrics(model, x, y, context=64, n_probes=8, n_iter=20, n_starts=3, se
                 if is_gpt:
                     xi, yi = model.embed(x[i, :context]).detach(), y[i, :context]
                     def logits(e): return model.forward_embeds(e[None])[0]
-                    def f(e): return F.cross_entropy(logits(e), yi)
+                    def f(e): return mean_loss(logits(e), yi, model.loss_kind)
                 else:
                     xi, yi = x[i], y[i:i + 1]
                     def logits(e): return model(e[None])
-                    def f(e): return F.cross_entropy(logits(e), yi)
+                    def f(e): return mean_loss(logits(e), yi, model.loss_kind)
                 row = point_metrics(f, xi, n_probes, n_iter, n_starts, gen)
-                row['jac_fro'] = jacobian_fro(lambda e: F.softmax(logits(e), -1), xi, not is_gpt, n_probes, gen)
+                row['jac_fro'] = jacobian_fro(lambda e: probs(logits(e), model.loss_kind), xi, not is_gpt, n_probes, gen)
                 rows.append(row)
     finally:
         for p, flag in zip(model.parameters(), flags):

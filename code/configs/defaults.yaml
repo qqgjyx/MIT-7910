@@ -16,6 +16,7 @@ model:
   activation: gelu            # SimpleCNN only: gelu | relu
 
 train:
+  loss: ce                    # ce | mse (squared error to the one-hot target, summed over the classes)
   batch_size: 64
   max_steps: 5000
   grad_clip: 0.0              # 0 disables clipping (clipping hides edge-of-stability dynamics)
@@ -46,6 +47,7 @@ log:
   train_every: 10
   eval_steps: {every: 100, geometric: 30}
   ckpt_steps: {every: 1000, geometric: 10}
+  ckpt_optimizer: false       # also save the optimizer state at the checkpoint steps (opt/<step>.pt)
   fork_steps: []
   resume_minutes: 15
 

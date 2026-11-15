@@ -37,7 +37,7 @@ def main(argv):
     if (out / 'done').exists():
         print(f'{out} is done')
         return 0
-    for sub in ('preds', 'ckpt', 'fork'):
+    for sub in ('preds', 'ckpt', 'fork') + ('opt',) * bool(cfg.log.ckpt_optimizer):
         (out / sub).mkdir(parents=True, exist_ok=True)
     save_config(cfg, out / 'config.yaml')
 
@@ -122,10 +122,12 @@ def main(argv):
 
     for step in range(start, T + 1):
         if step in eval_steps:
-            logp, rec = probe.evaluate(model)
-            torch.save({'logp': logp}, out / 'preds' / f'{step:07d}.pt')
+            preds, rec = probe.evaluate(model)
+            torch.save(preds, out / 'preds' / f'{step:07d}.pt')
             log('eval', step, **rec)
         if step in ckpt_steps and not (out / 'ckpt' / f'{step:07d}.pt').exists():
+            if cfg.log.ckpt_optimizer:  # first, so that a checkpoint always has its optimizer state
+                atomic_save({'optimizer': opt.state_dict()}, out / 'opt' / f'{step:07d}.pt')
             atomic_save({'model': model.state_dict()}, out / 'ckpt' / f'{step:07d}.pt')
         for rule, d in ghost_dirs.items():
             if step in ckpt_steps and not (d / 'ckpt' / f'{step:07d}.pt').exists():

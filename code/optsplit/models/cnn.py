@@ -5,8 +5,12 @@ two 64-filter 3x3 convolutions with max pooling after each pair, then a 128-unit
 import torch.nn as nn
 from torch.nn import functional as F
 
+from ..loss import mean_loss
+
 
 class SimpleCNN(nn.Module):
+    loss_kind = 'ce'  # train.loss, set by build_model
+
     def __init__(self, width=32, hidden=128, num_classes=10, activation='relu'):
         super().__init__()
         self.act = {'relu': F.relu, 'gelu': F.gelu}[activation]
@@ -23,4 +27,4 @@ class SimpleCNN(nn.Module):
         return self.fc2(self.act(self.fc1(x.flatten(1))))
 
     def loss(self, x, y):
-        return F.cross_entropy(self(x).float(), y)
+        return mean_loss(self(x).float(), y, self.loss_kind)

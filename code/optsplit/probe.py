@@ -1,13 +1,15 @@
 """Fixed held-out and training examples on which every run's predictions and losses are logged."""
 
 import torch
-import torch.nn.functional as F
+
+from .loss import log_probs, mean_loss
 
 
 class Probe:
     def __init__(self, cfg, data):
         p = cfg.probe
         self.kind = data.kind
+        self.loss = cfg.train.get('loss', 'ce')
         self.val = data.fixed_batch('val', p.n_seqs, seed=0)
         self.train = data.fixed_batch('train', p.train_seqs, seed=0)
         self.chunk = 32 if data.kind == 'lm' else 1000
@@ -24,7 +26,7 @@ class Probe:
 
     def _loss_acc(self, logits, y):
         logits, y = logits.reshape(-1, logits.size(-1)), y.reshape(-1)
-        return F.cross_entropy(logits, y).item(), (logits.argmax(-1) == y).float().mean().item()
+        return mean_loss(logits, y, self.loss).item(), (logits.argmax(-1) == y).float().mean().item()
 
     @torch.no_grad()
     def train_loss(self, model):
@@ -32,10 +34,11 @@ class Probe:
 
     @torch.no_grad()
     def evaluate(self, model):
-        """-> (float16 log-probabilities on the stored validation positions, eval record)."""
+        """-> (predictions on the stored validation positions, eval record). The predictions are float16: `logp`
+        (log-probabilities) with the cross-entropy loss, `z` (the raw outputs, see loss.probs) with mse."""
         logits = self._logits(model, self.val[0])
         val_loss, val_acc = self._loss_acc(logits, self.val[1])
         if self.kind == 'lm':
             logits = logits[:, self.pos.to(logits.device)].reshape(-1, logits.size(-1))
-        logp = F.log_softmax(logits, -1).half().cpu()
-        return logp, dict(train_loss=self.train_loss(model), val_loss=val_loss, val_acc=val_acc)
+        preds = {'z': logits.half().cpu()} if self.loss == 'mse' else {'logp': log_probs(logits).half().cpu()}
+        return preds, dict(train_loss=self.train_loss(model), val_loss=val_loss, val_acc=val_acc)
