@@ -169,8 +169,8 @@ smoothed Muon (S-Muon) near step 2000: mean $\pm$ half-range over data orders 0-
 and smoothed Muon/Muon (S/M). If one optimizer's values range over $[a_{\min},a_{\max}]$ and Muon's over
 $[b_{\min},b_{\max}]$, the ratio ranges over $[a_{\min}/b_{\max},\,a_{\max}/b_{\min}]$, given as midpoint $\pm$
 half-width. Rows marked ($\times10^k$) are in units of $10^k$. Bold: in each ratio column, the five ratios farthest
-from 1 whose range excludes 1. Smoothed Muon reaches this loss just after its early phase of high curvature ends
-(Step 2), which raises its curvature rows.}
+from 1 whose range excludes 1. At this loss smoothed Muon's early high curvature is still falling (Step 2), which
+raises its curvature rows.}
 \label{tab:app-am}
 \footnotesize\setlength{\tabcolsep}{2.5pt}\setlength{\aboverulesep}{0pt}\setlength{\belowrulesep}{0pt}%
 \renewcommand{\arraystretch}{1.15}%
@@ -314,10 +314,31 @@ Swap to smoothed Muon & the AdamW and Muon parents kept no smoothed-Muon state, 
 Hyperparameters & $B$'s (\cref{tab:app-optim}) \\
 Steps & $s$ to 10{,}000, on the parent's schedule and batches (data order 0) \\
 Swap forks & 6 directions $\times$ 9 steps $=$ 54 (18 between AdamW and Muon, from the MSE checkpoint) \\
-Metrics & at $s+{}$0, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 4000, 6000 (each with the next
+Metrics (\cref{fig:swap}) & at $s+{}$0, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 4000, 6000 (each with the next
   two steps, for the updates) and every 1000 steps \\
 \hline
 Same-batch control & the parent itself ($A$ continued with the same batches) \\
 \hline
 \end{tabular}\end{minipage}
+\end{center}
+
+\begin{center}\small
+\captionsetup{type=table}
+\caption{Hessian trace at step 10{,}000 of every swapped run (data order 0). ``Parent'' and ``new'': the own runs of
+the parent's and of the new optimizer. The two swaps from AdamW at fork step 1000 end outside the interval between the
+own runs, also in other metrics (\cref{fig:swap}); we have not looked into why.}
+\label{tab:app-swaptrace}
+\footnotesize\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}l|c|ccccccccc|c@{}}
+ & & \multicolumn{9}{c|}{fork step} & \\
+swap & parent & 50 & 100 & 200 & 400 & 700 & 1000 & 1500 & 2500 & 4000 & new \\
+\hline
+AdamW $\to$ Muon & 2257 & 9190 & 8429 & 5726 & 3157 & 1753 & 15463 & 1882 & 2406 & 2179 & 8941 \\
+Muon $\to$ AdamW & 8941 & 2178 & 2259 & 2217 & 2398 & 2342 & 2027 & 3167 & 3309 & 3380 & 2257 \\
+Muon $\to$ S-Muon & 8941 & 5118 & 5817 & 5175 & 5334 & 6392 & 6269 & 6988 & 7456 & 8152 & 5037 \\
+S-Muon $\to$ Muon & 5037 & 8495 & 8508 & 8098 & 7181 & 7433 & 7528 & 6836 & 6039 & 5686 & 8941 \\
+AdamW $\to$ S-Muon & 2257 & 5079 & 4925 & 3417 & 2272 & 1935 & 16259 & 1827 & 2362 & 2135 & 5037 \\
+S-Muon $\to$ AdamW & 5037 & 2097 & 2269 & 2287 & 2351 & 2600 & 2441 & 2561 & 3047 & 2675 & 2257 \\
+\hline
+\end{tabular}
 \end{center}
