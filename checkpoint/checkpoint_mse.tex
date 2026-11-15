@@ -1,0 +1,156 @@
+\documentclass[10pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=0.7in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs,array}
+\usepackage[font=small,labelfont=bf,skip=3pt]{caption}
+\captionsetup[figure]{font=footnotesize}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[backend=bibtex,style=authoryear,natbib=true,maxcitenames=2,maxbibnames=4,minbibnames=3,uniquelist=false,uniquename=false,giveninits=true,doi=false,isbn=false,url=false,eprint=false]{biblatex}
+\addbibresource{refs.bib}
+\usepackage[colorlinks=true,linkcolor=MidnightBlue,citecolor=MidnightBlue,urlcolor=MidnightBlue]{hyperref}
+\usepackage[capitalise,nameinlink]{cleveref}
+\setlength{\parskip}{2pt}
+\setlength{\parindent}{0pt}
+\setlist{nosep,leftmargin=*}
+\setlength{\textfloatsep}{8pt}
+\setlength{\intextsep}{6pt}
+\makeatletter
+\renewcommand\paragraph{\@startsection{paragraph}{4}{\z@}{1.0ex \@plus .3ex \@minus .2ex}{-1em}{\normalfont\normalsize\bfseries}}
+\renewcommand\maketitle{\begin{center}{\large\bfseries\@title\par}\vspace{3pt}\@author\quad\textperiodcentered\quad\@date\end{center}}
+\makeatother
+
+\title{How AdamW and Muon Train a Small Language Model\\[1pt]
+\normalfont Initial checkpoint with the MSE loss, MIT 6.7910, Fall 2026}
+\author{Juntang Wang and V\'ictor Conchello}
+\date{November 14, 2026}
+
+\begin{document}
+\maketitle
+\vspace{-0.8em}
+
+\paragraph{Summary.} We train a small language model with AdamW and Muon from one initialization, on the same
+mini-batches, with the mean squared error (MSE) loss. (1)~Muon trains faster. Its path and final model differ from
+AdamW's about as much as two runs of one optimizer on different mini-batches, but its loss is lower. (2)~The optimizers
+differ in various metrics that look at the model's internals: weight spectra, similarity of consecutive updates,
+curvature, and MLP sparsity. (3)~When a run switches optimizer mid-training, the similarity of its consecutive updates
+ends at the new optimizer's level. Its weight spectra, MLP sparsity and curvature depend on when it switches: a switch
+to Muon after 400 AdamW steps keeps AdamW's low stable rank, while one to AdamW within 1500 steps leaves little trace.
+
+\paragraph{Setup.} \emph{Model.} We train a 14M-parameter nanoGPT \citep{karpathy2022nanogpt} on TinyStories
+\citep{eldan2023tinystories} for 10{,}000 steps of 128 sequences of 256 tokens (settings: \cref{app:hparams}).
+\emph{Loss.} Instead of cross-entropy, every run minimizes the MSE $\|z-e_y\|^2$ between the 4096 outputs $z$ and the
+one-hot next token $e_y$. The model predicts $p=\max(z,0)/\sum_v\max(z_v,0)$.
+
+\emph{Optimizers.} Muon \citep{jordan2024muon} orthogonalizes the update of each weight matrix in the transformer
+blocks: it sets its singular values to about 1. In Muon runs, AdamW trains the other parameters. Each optimizer runs
+from the same weights on the same five \emph{data orders} (mini-batch sequences), at its best learning rate with no
+stuck run (\cref{tab:app-optim}).
+
+\paragraph{Step 1: how the trajectories differ (\cref{fig:div}).} \emph{Comparing runs.} The distance between two runs
+is the mean Jensen--Shannon divergence (JS, in bits) of their next-token predictions on held-out text. We compare runs
+at equal step and at equal training loss; at equal loss, speed does not count as a difference. The \emph{floor} is the
+mean distance between two data orders of one optimizer. A distance of one floor means ``as different as two data
+orders''.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures_mse/divergence_umap_adamw_muon.pdf}
+\caption{AdamW and Muon. (a) Checkpoints from step 2000 on, mapped to 2-D by densMAP (shows neighbours, not distances);
+labels: training loss and data order. (b) JS between runs at equal step. (c) The same at equal training loss. (d)
+Validation loss.}
+\label{fig:div}
+\end{figure}
+
+\emph{Faster, and on a different path.} Muon reaches AdamW's final validation loss (0.587 on average) by step 5750 (d).
+Since they share the initialization and batches, if Muon just followed AdamW's path faster, they would be closer at
+equal loss (c) than at equal step (b). The opposite happens: from step 3000 on, their distance is larger at equal loss
+than at equal step (at AdamW's step 5000, 0.285 against 0.252). So the paths differ. Their distance is about that of two
+data orders: at equal step, AdamW and Muon on one data order are closer than two data orders of AdamW and farther apart
+than two of Muon (step 5000: 0.252 against 0.264 and 0.233; b).
+
+\emph{Endpoints.} The final models are about one floor apart (b), but Muon's validation loss is lower: 0.567 against
+0.587 (d).
+
+\paragraph{Step 2: what differs along the way.} We measure 30 properties of each model at 34 points of training, in five
+groups: weights $W$, one-step updates $\Delta W$, loss curvature (Hessian $H$), internal activations and predictions
+(\cref{app:metrics} defines each metric and compares all of them in \cref{tab:app-am,tab:app-sgd}). \Cref{tab:app-sgd}
+also gives the values for SGD with momentum.
+
+We compare the optimizers by each metric's ratio AdamW/Muon at training loss 0.65, on three data orders each
+(\cref{fig:rank}, \cref{tab:app-am}). The $\pm$ gives its range over data orders; if it excludes 1, the optimizers
+differ more than data orders do.
+
+\begin{figure}[H]
+\centering
+\includegraphics{figures_mse/ranking.pdf}
+\caption{Ratio AdamW/Muon at training loss 0.65, for selected metrics; three data orders each; bars: range across data
+orders.}
+\label{fig:rank}
+\end{figure}
+
+\begin{itemize}
+\item \emph{Weights $W$.} Muon's weight matrices have more evenly sized singular values. Their stable rank
+$\|W\|_F^2/\|W\|_2^2$ is 85 against AdamW's 17 (Muon/AdamW $4.9\pm0.3$), and their effective rank 320 against 234. Their
+spectral norm (2.0 against 9.1) and largest-to-median singular-value ratio $\sigma_1/\sigma_{\rm median}$ (2.9 against
+16.5) are lower. AdamW also moves farther from the initialization: 2.7 against 1.6 times the initial norm.
+\item \emph{One-step updates $\Delta W$.} Consecutive Muon steps are less alike (cosine 0.76 against 0.88). Their stable
+rank is much higher (208 against 11; \cref{tab:app-am}), but by construction: Muon orthogonalizes every update.
+\item \emph{Loss curvature (Hessian $H$).} Muon is sharper: the top Hessian eigenvalue $\lambda_{\max}$ is 107 against
+40, the trace $\operatorname{tr}H$ 4380 against 2260. Muon's steps are also larger relative to the weights
+($\|\Delta\theta\|/\|\theta\|$ is $4.8\cdot10^{-3}$ against AdamW's $3.5\cdot10^{-3}$).
+\item \emph{Internal activations.} AdamW's MLP is much sparser: 8\% of its units are active, against 43\% for Muon.
+\item \emph{Predictions.} AdamW's are more concentrated (entropy 4.59 nats against 4.95). The loss on frequent targets
+does not separate the two (\cref{tab:app-am}).
+\end{itemize}
+
+\paragraph{Step 3: swaps (\cref{fig:swap}).} \emph{Swaps.} A \emph{swap} switches a run of one optimizer (the
+\emph{parent}, on data order 0) to the other optimizer at a \emph{fork step}, then trains it to step 10{,}000 on the
+parent's batches (\cref{app:forks} gives the fork steps, the optimizer state at the swap and the measurement steps). An
+optimizer's \emph{own run} is its run from the start. We swap at nine fork steps from 50 to 4000, in both directions. We
+give each metric's value at step 10{,}000 as a fraction of the way, on a linear scale, from the parent's value (0) to
+that of the new optimizer's own run (1).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures_mse/swap_traj_adamw_muon.pdf}
+\caption{Swaps on data order 0: five metrics against the step. Top: AdamW to Muon; bottom: Muon to AdamW. Black: the
+parent's optimizer without a swap; grey dashed: the new optimizer's own run; colour: swapped runs, by fork step (dot:
+the swap).}
+\label{fig:swap}
+\end{figure}
+
+\emph{Weights $W$ and internal activations.} For the spectral norm and stable rank of $W$ (a, b, f, g) and the fraction
+of active MLP units (e, j), the final value depends on the fork step. AdamW's own stable rank falls from 53 to 4 between
+steps 200 and 300 (a). Swaps to Muon before this fall end near Muon's own run (0.78--0.94 of the way); later ones stay
+near AdamW's (at most 0.19). Swaps to AdamW at fork steps up to 1500 end at AdamW's stable rank (0.94--1.07), and those
+at steps 2500 and 4000 about half-way. So a few hundred AdamW steps largely fix the final stable rank, while 1500 Muon
+steps do not.
+
+\emph{One-step updates $\Delta W$.} The cosine between consecutive updates ends at the new optimizer's level in all 18
+swaps (c, h): 0.80--0.83 after a switch to Muon and 0.89--0.90 after a switch to AdamW (own runs: 0.81 and 0.89). This
+is expected: it reflects the optimizer's own dynamics more than the model's weights.
+
+\emph{Loss curvature (Hessian $H$).} $\lambda_{\max}$ also depends on the fork step (d, i). Swaps to AdamW up to step
+1500 fall to AdamW's level (0.94--1.02 of the way); those at steps 2500 and 4000 end 0.78 and 0.70 of the way. Swaps to
+Muon end near or above Muon's level up to step 200 (0.81--1.38), part of the way at steps 400 to 1500 (0.21--0.69), and
+at AdamW's level at steps 2500 and 4000 (0.03 and 0.01).
+
+\paragraph{Next steps.} (i)~Repeat Steps 1--3 on a larger model (TinyStories-30M) and on character-level Shakespeare.
+(ii)~For each property that differs in Step 2: does it follow directly from Muon's orthogonalized updates, or does it
+emerge during training? (iii)~Do these differences explain Step 1, Muon's faster training and different path? Is any of
+them a reason Muon does better?
+
+\clearpage
+\printbibliography
+
+\clearpage \appendix
+\input{checkpoint_mse_appendix}
+
+\end{document} 
