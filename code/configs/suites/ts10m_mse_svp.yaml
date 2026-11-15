@@ -8,6 +8,8 @@
 # Added after the first results (the final loss is lowest at p = -0.3 and -0.5, not at 0), at Muon's rate only:
 # p = -0.75 and -1, to see where the loss turns up again, and p = -0.3 on data orders 1 and 2, to compare its gain
 # over plain Muon (ts10m_mse_main/muon_d1, muon_d2) with the spread over data orders.
+# Scratch ran full on 2026-11-15: the last two runs (p = 0.5 and 0.75 at the lower rate) store no optimizer state, and
+# opt/ of the other runs was deleted after they finished (nothing in the analysis reads it).
 suite: ts10m_mse_svp
 base: ../base/tinystories_10m.yaml
 overrides:
@@ -21,6 +23,7 @@ overrides:
 name: "muon_p{optim.muon.sv_power}_lr{optim.muon.lr}_d{train.data_seed}"
 runs:
   - {optim.muon.lr: 0.005, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0}
-  - {optim.muon.lr: 0.0025, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0}
+  - {optim.muon.lr: 0.0025, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25], train.data_seed: 0}
+  - {optim.muon.lr: 0.0025, optim.muon.sv_power: [0.5, 0.75], train.data_seed: 0, log.ckpt_optimizer: false}
   - {optim.muon.lr: 0.005, optim.muon.sv_power: [-1.0, -0.75], train.data_seed: 0}
   - {optim.muon.lr: 0.005, optim.muon.sv_power: -0.3, train.data_seed: [1, 2]}

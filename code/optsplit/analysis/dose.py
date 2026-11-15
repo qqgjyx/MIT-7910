@@ -29,35 +29,37 @@ def row(run, level):
     steps, loss = run.series('eval', 'train_loss')
     traj = [json.loads(f.read_text()) for f in sorted((run.path / 'traj_metrics').glob('*.json'))]
     at = lambda v: float(at_loss(np.c_[[t['train_loss'] for t in traj], v], [level])[0]) if len(traj) > 1 else np.nan
-    return dict(run=run.id, p=run.cfg.optim.muon.get('sv_power'), lr=run.lr, done=run.done,
+    return dict(run=run.id, p=run.cfg.optim.muon.get('sv_power'), lr=run.lr, data_seed=run.data_seed, done=run.done,
                 step=float(at_loss(np.c_[loss, steps], [level])[0]),
                 stable_rank=at([t['stable_rank'] for t in traj]), sv_spread=at([t['sv_spread'] for t in traj]),
                 final_step=int(steps[-1]), train=loss[-1], val=run.series('eval', 'val_loss')[1][-1])
 
 
 def color(p):
-    """p < 0 red, p > 0 blue, darker further from 0; p = 0 black."""
-    return 'k' if p == 0 else plt.get_cmap('Reds' if p < 0 else 'Blues')(0.35 + 0.6 * abs(p) / 0.75)
+    """p < 0 red, p > 0 blue, darker further from 0 (down to -1, up to 0.75); p = 0 black."""
+    return 'k' if p == 0 else plt.get_cmap('Reds')(0.3 - 0.65 * p) if p < 0 else plt.get_cmap('Blues')(0.35 + 0.8 * p)
 
 
 def curves(by_lr, refs, level, out, max_loss, offset, ticks):
-    fig, axes = plt.subplots(1, len(by_lr), figsize=(7.1, 2.4), sharey=True, layout='constrained', squeeze=False)
+    """One panel per learning rate: training loss on the probe against the step, a thin line at `level`."""
+    fig, axes = plt.subplots(1, len(by_lr), figsize=(7.1, 2.9), sharey=True, layout='constrained', squeeze=False)
+    handles = {}
     for ax, (lr, runs) in zip(axes[0], by_lr.items()):
-        for name, run in refs[lr].items():
-            ax.plot(*run.series('eval', 'train_loss'), lw=1, label=REFS[name][0], **REFS[name][1])
         for run in sorted(runs, key=lambda r: r.cfg.optim.muon.sv_power):
             p = run.cfg.optim.muon.sv_power
-            ax.plot(*run.series('eval', 'train_loss'), lw=0.9, color=color(p), label=f'$p={p:g}$')
+            handles[f'$p={p:g}$'], = ax.plot(*run.series('eval', 'train_loss'), lw=0.9, color=color(p))
+        for name, run in refs[lr].items():
+            handles[REFS[name][0]], = ax.plot(*run.series('eval', 'train_loss'), lw=1, **REFS[name][1])
         ax.axhline(level, color='k', lw=0.4)
         ax.set_yscale('function', functions=(lambda y: np.log(np.maximum(y - offset, 1e-9)),
                                              lambda v: np.exp(v) + offset))
         ax.set_yticks(ticks, labels=[f'{t:g}' for t in ticks])
-        ax.set_ylim(max_loss, None)
         ax.set_xlim(0, None)
         ax.set_xlabel('step')
         ax.set_title(f'learning rate {lr:g}')
+    axes[0, 0].set_ylim(min(np.nanmin(line.get_ydata()) for ax in axes[0] for line in ax.lines) - 0.003, max_loss)
     axes[0, 0].set_ylabel('training loss')
-    axes[0, -1].legend(frameon=False, loc='upper right', ncol=2)
+    fig.legend(handles.values(), handles.keys(), loc='outside lower center', ncol=6, frameon=False)
     if len(by_lr) > 1:
         panel_labels(axes[0])
     fig.savefig(out)
@@ -78,17 +80,18 @@ def main():
     out = Path(args.out)
     (out / 'figures').mkdir(parents=True, exist_ok=True)
 
-    runs = load_runs(f'{args.suite}/*')
+    started = lambda pats: [r for r in load_runs(pats) if r.records_of('eval')]
+    runs = started(f'{args.suite}/*_d0')
     main_lr = Run(f'{args.main}/muon_d0').lr
     by_lr = {lr: [r for r in runs if r.lr == lr] for lr in sorted({r.lr for r in runs}, key=lambda x: x != main_lr)}
     refs = {}
     for lr in by_lr:  # plain Muon at this rate (the main run, or the sweep's), and AdamW
-        muon = [r for r in load_runs([f'{args.main}/muon_d0', f'{args.sweep}/muon_*']) if r.lr == lr]
+        muon = [r for r in [Run(f'{args.main}/muon_d0')] + load_runs(f'{args.sweep}/muon_*') if r.lr == lr]
         refs[lr] = {'muon': muon[0], 'adamw': Run(f'{args.main}/adamw_d0')} if muon else {'adamw': Run(f'{args.main}/adamw_d0')}
 
     rows = [row(r, args.level) for lr in by_lr for r in sorted(by_lr[lr], key=lambda r: r.cfg.optim.muon.sv_power)]
     rows += [row(r, args.level) for r in {r.id: r for lr in refs for r in refs[lr].values()}.values()]
-    rows += [row(r, args.level) for r in load_runs(f'{args.main}/muon_d[1-9]')]  # the spread over data orders
+    rows += [row(r, args.level) for r in started([f'{args.suite}/*_d[1-9]', f'{args.main}/muon_d[1-9]'])]  # other orders
     lines = [f'{"run":<44} {"lr":>7} {"p":>6} {"step@" + format(args.level, "g"):>9} {"st.rank":>8} {"s1/smed":>8} '
              f'{"last":>6} {"train":>7} {"val":>7}']
     for r in rows:
