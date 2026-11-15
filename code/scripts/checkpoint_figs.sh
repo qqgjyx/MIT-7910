@@ -40,7 +40,7 @@ python -m optsplit.analysis.trajectories "$MAIN/adamw_d[012]" "$MAIN/muon_d[012]
 python -m optsplit.analysis.plots divergence --runs-a "$MAIN/adamw_d*" --runs-b "$MAIN/muon_d*" \
     --split "$OUT/split_adamw_muon.json" --traj "$OUT/thin/trajectories_densmap.json" \
     --traj-steps $STEPS --traj-label-steps $LABEL_STEPS --traj-name-step "$NAME_STEP" --mark-step "$START" \
-    --linear-steps --max-loss "$MAX_LOSS" --pairs --log-offset "$OFFSET" --loss-ticks $TICKS --labels \
+    --linear-steps --max-loss "$MAX_LOSS" --pairs --log-offset "$OFFSET" --loss-ticks $TICKS --labels --traj-room 0.3 \
     --val-runs "$MAIN/adamw_d*" "$MAIN/muon_d*" --out "$F" --name divergence_umap_adamw_muon.pdf
 # Fig 2 and the tables: metrics at equal training loss. The loss levels end at the lowest loss every run reaches, so
 # the AdamW/Muon comparison (rank/) is made without SGD, and the SGD table from all three (rank_sgd/).
