@@ -5,12 +5,14 @@
 # Data order 0; two learning rates per p: Muon's MSE rate 0.005 and half of it (both in ts10m_mse_lrsweep, so plain
 # Muon exists at each). Checkpoints of ts10m_mse_main d0-d2 (triples t, t+1, t+2) with the optimizer state at each;
 # ckpt/, opt/ and preds/ on scratch (slurm/scratch_links.sh). Plain Muon and AdamW: ts10m_mse_main/{muon,adamw}_d0.
+# Added after the first results (the final loss is lowest at p = -0.3 and -0.5, not at 0), at Muon's rate only:
+# p = -0.75 and -1, to see where the loss turns up again, and p = -0.3 on data orders 1 and 2, to compare its gain
+# over plain Muon (ts10m_mse_main/muon_d1, muon_d2) with the spread over data orders.
 suite: ts10m_mse_svp
 base: ../base/tinystories_10m.yaml
 overrides:
   train.loss: mse
   optimizer: muon
-  train.data_seed: 0
   log.ckpt_optimizer: true
   log.ckpt_steps: {every: 1000, geometric: 12, extra: [25, 26, 27, 50, 51, 52, 100, 101, 102, 150, 151, 152, 200, 201,
     202, 250, 251, 252, 300, 301, 302, 400, 401, 402, 500, 501, 502, 600, 601, 602, 800, 801, 802, 1000, 1001, 1002,
@@ -18,5 +20,7 @@ overrides:
     5000, 5001, 5002, 6000, 6001, 6002, 7000, 7001, 7002, 8000, 8001, 8002, 9000, 9001, 9002, 9998, 9999]}
 name: "muon_p{optim.muon.sv_power}_lr{optim.muon.lr}_d{train.data_seed}"
 runs:
-  - {optim.muon.lr: 0.005, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75]}
-  - {optim.muon.lr: 0.0025, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75]}
+  - {optim.muon.lr: 0.005, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0}
+  - {optim.muon.lr: 0.0025, optim.muon.sv_power: [-0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0}
+  - {optim.muon.lr: 0.005, optim.muon.sv_power: [-1.0, -0.75], train.data_seed: 0}
+  - {optim.muon.lr: 0.005, optim.muon.sv_power: -0.3, train.data_seed: [1, 2]}
