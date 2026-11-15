@@ -10,7 +10,7 @@ from optsplit import train
 from optsplit.config import load_config, save_config
 from optsplit.models import build_model
 from optsplit.optim import Ghost, build_optimizer, set_lr
-from optsplit.optim.muon import muon_update
+from optsplit.optim.muon import SV_FLOOR, muon_update
 
 TINY = ['model.n_layer=2', 'model.n_embd=16', 'model.n_head=2', 'model.block_size=8']
 
@@ -72,6 +72,30 @@ def test_muon_sv_power():
         assert torch.allclose(s, S.pow(p) * (16 ** 0.5 / S.pow(p).norm()), atol=1e-4)
     assert torch.allclose(muon_update(grad, zeros, sv_power=1.0), muon_update(grad, zeros, orthogonalize=False),
                           atol=1e-5)
+
+
+def test_muon_negative_sv_power():
+    torch.manual_seed(0)
+    U, _ = torch.linalg.qr(torch.randn(16, 16))
+    V, _ = torch.linalg.qr(torch.randn(48, 16))
+    S = torch.logspace(0, -4, 16)
+    update = lambda grad, p: muon_update(grad, torch.zeros(16, 48), sv_power=p)
+    for p in (-0.1, -0.5):  # above the floor: exactly S^p, so the smallest singular direction becomes the largest
+        u = update((U * S) @ V.T, p)
+        s = S.pow(p) * (16 ** 0.5 / S.pow(p).norm())
+        assert torch.allclose(torch.linalg.svdvals(u), s.flip(0), rtol=1e-3)
+        assert torch.dot(U[:, -1], u @ V[:, -1]).item() == pytest.approx(s[-1].item(), rel=1e-3)
+    S[8:] = 0  # rank-deficient (and zero) momentum: finite, the null directions get the floor's weight
+    for grad in ((U * S) @ V.T, torch.zeros(16, 48)):
+        u = update(grad, -0.5)
+        assert torch.isfinite(u).all() and u.norm().item() == pytest.approx(4, rel=1e-4)
+    s = torch.linalg.svdvals(update((U * S) @ V.T, -0.5))
+    assert s[0] / s[-1] <= SV_FLOOR ** -0.5 * 1.01
+    g = torch.randn(16, 48)  # p >= 0 does not go through the floor: the plain formula, bit for bit
+    for p in (0.0, 0.5):
+        A, s, Bh = torch.linalg.svd(g.lerp(g * 0.05, 0.95), full_matrices=False)
+        plain = (A * s.pow(p)) @ Bh
+        assert torch.equal(update(g, p), plain * (4 / (plain.norm() + 1e-7)))
 
 
 @pytest.mark.parametrize('option', ['orthogonalize=false', 'sv_power=0.5'])

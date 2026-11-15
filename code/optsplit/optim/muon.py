@@ -7,6 +7,8 @@ the same gradients sees them unchanged. Added, as ablations (DESIGN.md): `orthog
 
 import torch
 
+SV_FLOOR = 1e-6  # sv_power < 0: singular values below this fraction of the largest are raised to it (float32 SVD noise)
+
 
 def zeropower_via_newtonschulz5(G, steps: int):
     """Approximate orthogonalization U S' V^T of G by a quintic Newton-Schulz iteration (see upstream)."""
@@ -35,6 +37,8 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, orthogonal
     else:  # ablations, rescaled to the Frobenius norm of an orthogonal update, sqrt(min(n_out, n_in))
         if sv_power is not None:  # U S^p V^T of the momentum (p=0: exact orthogonalization)
             U, S, Vh = torch.linalg.svd(update.float(), full_matrices=False)
+            if sv_power < 0:  # S^p is unbounded as S -> 0: relative singular values, floored (the scale cancels below)
+                S = (S / S[0].clamp_min(1e-30)).clamp_min(SV_FLOOR)
             update = (U * S.pow(sv_power)) @ Vh
         update = update * (min(update.shape[-2:]) ** 0.5 / (update.norm() + 1e-7))
     update *= max(1, update.size(-2) / update.size(-1)) ** 0.5

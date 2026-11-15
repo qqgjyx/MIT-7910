@@ -28,7 +28,8 @@ the model, from the same initialization, updated by that rule (own state, hyperp
 gradients, so the copy never feeds back. A ghost of the run's own rule reproduces the run. Checkpoints go to
 `<name>__ghost_<rule>/` (its `config.yaml` has `optimizer: <rule>` and `ghost_of`), at the run's `log.ckpt_steps`. Not
 with forks. `optim.muon.orthogonalize: false` (Nesterov momentum rescaled to the Frobenius norm of an orthogonal update) and
-`sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former)
+`sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former;
+for p<0 the singular values are first divided by the largest and those below 1e-6 raised to 1e-6, so S^p stays finite)
 are Muon ablations.
 
 `train.loss` is `ce` (default) or `mse`: the squared error between the outputs z (the logits, no softmax) and the

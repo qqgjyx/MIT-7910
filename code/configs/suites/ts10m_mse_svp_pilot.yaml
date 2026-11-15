@@ -1,0 +1,15 @@
+# Pilot of ts10m_mse_svp: do the negative powers train at all? The first 1500 steps (the learning rate is at its peak
+# after the warmup, as in the first 1500 of 10,000 steps), no Hessian measurements; compare with ts10m_mse_main/muon_d0.
+suite: ts10m_mse_svp_pilot
+base: ../base/tinystories_10m.yaml
+overrides:
+  train.loss: mse
+  optimizer: muon
+  train.data_seed: 0
+  train.max_steps: 1500
+  schedule.decay: constant
+  measure.hessian: false
+  log.ckpt_steps: {every: 500}
+name: "muon_p{optim.muon.sv_power}_lr{optim.muon.lr}_d{train.data_seed}"
+runs:
+  - {optim.muon.lr: 0.005, optim.muon.sv_power: [-0.5, -0.3, -0.1]}
