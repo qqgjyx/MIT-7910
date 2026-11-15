@@ -2,10 +2,12 @@
 # steps, both directions, with checkpoints at three consecutive steps t, t+1, t+2 at the fork step s and at s + 5, 10,
 # 25, 50, 100, 250, 500, 1000, 2000, 4000, 6000 (below 9998), and at 9998-10000. Unlike ts10m_forks_dense, the
 # sharpness is also measured during training (it does not change the run). Forks inherit the parent's config, so
-# the loss is the parent's. Their ckpt/ and preds/ go to scratch (slurm/scratch_links.sh).
+# the loss is the parent's; AdamW's learning rate is set here because the Muon parent's config records an older one.
+# Their ckpt/ and preds/ go to scratch (slurm/scratch_links.sh).
 suite: ts10m_mse_forks
 base: ../base/tinystories_10m.yaml
 overrides:
+  optim.adamw.lr: 2.0e-3
   shadow: []
   log.fork_steps: []
   log.ckpt_optimizer: false

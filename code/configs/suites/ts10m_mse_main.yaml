@@ -3,12 +3,15 @@
 # one-step updates) and the optimizer state at each (opt/, on scratch: slurm/scratch_links.sh). The d0 runs keep the
 # other optimizer's state in shadow and save fork checkpoints for ts10m_mse_forks, at the nine fork steps and at
 # 6000, 7500, 9000 (late swaps). Orders 3-4 only add to the data-order floor: default checkpoints.
-# Learning rates: best final validation loss in ts10m_mse_lrsweep (AdamW 4e-3 of five rates, Muon 0.005 of seven).
+# Learning rates, from ts10m_mse_lrsweep (d0): Muon 0.005, the best final validation loss of seven rates. AdamW 2e-3:
+# the best of its five rates, 4e-3, stays at loss 0.86 on data order 1 (as 8e-3 does on d0), so we take the next one
+# (0.591 against 0.584 on d0). The 4e-3 runs are kept in runs/ts10m_mse_adamw4e-3/ (d0-d2). The Muon runs were
+# launched before this change: their config.yaml records optim.adamw.lr 4e-3, which they do not use.
 suite: ts10m_mse_main
 base: ../base/tinystories_10m.yaml
 overrides:
   train.loss: mse
-  optim.adamw.lr: 4.0e-3
+  optim.adamw.lr: 2.0e-3
   optim.muon.lr: 0.005
   log.ckpt_steps: {every: 1000, geometric: 12, extra: [25, 26, 27, 50, 51, 52, 100, 101, 102, 150, 151, 152, 200, 201,
     202, 250, 251, 252, 300, 301, 302, 400, 401, 402, 500, 501, 502, 600, 601, 602, 800, 801, 802, 1000, 1001, 1002,

@@ -6,7 +6,7 @@ base: ../base/tinystories_10m.yaml
 overrides:
   train.loss: mse
   optim.sgd.lr: 0.02
-  optim.adamw.lr: 4.0e-3
+  optim.adamw.lr: 2.0e-3
   optim.muon.lr: 0.005
   measure.steps: {every: 50, geometric: 30}
   measure.anatomy: false
