@@ -193,14 +193,16 @@ def summarize(res, levels, lo, hi):
     return out
 
 
-def loss_axis(ax):
-    ax.set_xscale('function', functions=(lambda x: np.log(np.maximum(x - 1, 1e-9)), lambda y: np.exp(y) + 1))
-    ax.set_xticks([4, 3, 2.5, 2, 1.8, 1.6, 1.4])
-    ax.set_xticklabels(['4', '3', '2.5', '2', '1.8', '1.6', '1.4'])
+def loss_axis(ax, offset=1.):
+    """Loss axis on log(L - offset), decreasing to the right; labelled ticks for the cross-entropy runs (offset 1)."""
+    ax.set_xscale('function', functions=(lambda x: np.log(np.maximum(x - offset, 1e-9)), lambda y: np.exp(y) + offset))
+    if offset == 1:
+        ax.set_xticks([4, 3, 2.5, 2, 1.8, 1.6, 1.4])
+        ax.set_xticklabels(['4', '3', '2.5', '2', '1.8', '1.6', '1.4'])
     ax.invert_xaxis()
 
 
-def plot_curves(pdf, runs, pts, keys, max_loss):
+def plot_curves(pdf, runs, pts, keys, max_loss, offset=1.):
     n = len(keys)
     cols = 4
     fig, axes = plt.subplots(math.ceil(n / cols), cols, figsize=(13, 2.6 * math.ceil(n / cols)), squeeze=False)
@@ -213,13 +215,13 @@ def plot_curves(pdf, runs, pts, keys, max_loss):
             m = loss <= max_loss
             ax.plot(loss[m], v[m], color=COLORS[r.optimizer], lw=0.9,
                     ls=['-', '--', ':'][r.data_seed % 3], label=f'{NAMES[r.optimizer]} d{r.data_seed}')
-        loss_axis(ax)
+        loss_axis(ax, offset)
         ax.set_title(METRICS[k][1], fontsize=9)
         ax.tick_params(labelsize=7)
     for ax in axes.flat[n:]:
         ax.axis('off')
     axes.flat[0].legend(fontsize=6, ncol=3)
-    fig.supxlabel('training loss (log scale in L - 1)', fontsize=9)
+    fig.supxlabel(f'training loss (log scale in L - {offset:g})', fontsize=9)
     fig.tight_layout()
     pdf.savefig(fig)
     plt.close(fig)
@@ -310,6 +312,8 @@ def main():
     p.add_argument('--out', required=True)
     p.add_argument('--levels', type=int, default=40, help='loss levels, evenly spaced in log(L - 1)')
     p.add_argument('--max-loss', type=float, default=4.0)
+    p.add_argument('--loss-offset', type=float, default=1.0, help='the levels are spaced in log(L - this): below the '
+                   'lowest loss (1 suits cross-entropy on TinyStories; the mse loss ends below 1)')
     p.add_argument('--lo-hi', type=float, nargs=2, default=None, help='loss range of the summary (default: from '
                    'the lowest loss all runs reach to 3)')
     p.add_argument('--report', type=float, nargs='+', default=[3.0, 2.2, 1.8], help='loss levels for the table')
@@ -321,9 +325,10 @@ def main():
     cache_file = out / 'pred_metrics_cache.pt'
     cache = torch.load(cache_file) if cache_file.exists() else {}
     floor_loss = max(r.series('eval', 'train_loss')[1].min() for r in runs)
-    levels = 1 + np.exp(np.linspace(np.log(args.max_loss - 1), np.log(floor_loss - 1 + 1e-3), args.levels))
+    off = args.loss_offset
+    levels = off + np.exp(np.linspace(np.log(args.max_loss - off), np.log(floor_loss - off + 1e-3), args.levels))
     res, pts = rank(runs, refs, levels, cache)
-    lo, hi = args.lo_hi or (floor_loss, 3.0)
+    lo, hi = args.lo_hi or (floor_loss, min(3.0, args.max_loss))
     summary = summarize(res, levels, lo, hi)
     order = sorted(summary, key=lambda k: -np.nan_to_num(summary[k]['ratio'].get('adamw-muon', np.nan), nan=-1))
     rep = {L: int(np.argmin(np.abs(levels - L))) for L in args.report}
@@ -358,7 +363,7 @@ def main():
     with PdfPages(out / 'figures' / 'metrics.pdf') as pdf:
         plot_ranking(pdf, summary, order, f'TinyStories-10M, losses {lo:.2f}-{hi:.2f}')
         for g in dict.fromkeys(v[0] for v in METRICS.values()):
-            plot_curves(pdf, runs, pts, [k for k in METRICS if METRICS[k][0] == g], args.max_loss)
+            plot_curves(pdf, runs, pts, [k for k in METRICS if METRICS[k][0] == g], args.max_loss, off)
         if args.forks:
             forks = load_runs(args.forks)
             pures = [r for r in runs if r.optimizer in ('adamw', 'muon')]

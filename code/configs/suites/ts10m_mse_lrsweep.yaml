@@ -1,7 +1,8 @@
 # ts10m_lrsweep with the MSE loss (train.loss: mse): one data order, to pick each optimizer's rate by its final
 # validation loss (python -m optsplit.analysis.table 'ts10m_mse_lrsweep/*' --sort val_loss). Unlike ts10m_lrsweep it
 # measures the sharpness (as ts10m_lrsweep_hessian), to see the edge of stability at every rate. No checkpoints;
-# the stored outputs are thinned to 4 positions per probe sequence (disk).
+# the stored outputs are thinned to 4 positions per probe sequence (disk). Added after the first pass: Muon below 0.005
+# (its best rate was at the edge of the five) and SGD between 0.03 and 0.1 (0.1 diverges).
 suite: ts10m_mse_lrsweep
 base: ../base/tinystories_10m.yaml
 overrides:
@@ -13,6 +14,6 @@ overrides:
   log.ckpt_steps: {every: 0, geometric: 0}
   probe.positions_per_seq: 4
 runs:
-  - {optimizer: sgd, optim.sgd.lr: [0.001, 0.003, 0.01, 0.03, 0.1, 0.3], name: "sgd_lr{optim.sgd.lr}"}
+  - {optimizer: sgd, optim.sgd.lr: [0.001, 0.003, 0.01, 0.03, 0.045, 0.06, 0.085, 0.1, 0.3], name: "sgd_lr{optim.sgd.lr}"}
   - {optimizer: adamw, optim.adamw.lr: [3.0e-4, 1.0e-3, 2.0e-3, 4.0e-3, 8.0e-3], name: "adamw_lr{optim.adamw.lr}"}
-  - {optimizer: muon, optim.muon.lr: [0.005, 0.01, 0.02, 0.04, 0.08], name: "muon_lr{optim.muon.lr}"}
+  - {optimizer: muon, optim.muon.lr: [0.00125, 0.0025, 0.005, 0.01, 0.02, 0.04, 0.08], name: "muon_lr{optim.muon.lr}"}
