@@ -121,19 +121,40 @@ def test_smoothed_muon_recursion():
     assert torch.allclose(swapped[0], muon_steps(grads[:1], state=state())[0][0], atol=1e-6)
 
 
-def test_train_writes_ghost_runs(tmp_path, monkeypatch):
+def train_tiny(tmp_path, monkeypatch, name, *over):
     monkeypatch.setenv('OPTSPLIT_ROOT', str(tmp_path))
     d = tmp_path / 'data' / 'shakespeare_char'
-    d.mkdir(parents=True)
-    for split in ('train', 'val'):
-        np.random.default_rng(0).integers(0, 11, 5000).astype(np.uint16).tofile(d / f'{split}.bin')
-    (d / 'meta.json').write_text(json.dumps({'vocab_size': 11, 'itos': list('abcdefghijk')}))
-    cfg = load_config(None, [*TINY, 'suite=t', 'name=adamw_d0', 'optimizer=adamw', 'ghost=[adamw, muon]',
+    if not d.exists():
+        d.mkdir(parents=True)
+        for split in ('train', 'val'):
+            np.random.default_rng(0).integers(0, 11, 5000).astype(np.uint16).tofile(d / f'{split}.bin')
+        (d / 'meta.json').write_text(json.dumps({'vocab_size': 11, 'itos': list('abcdefghijk')}))
+    cfg = load_config(None, [*TINY, 'suite=t', f'name={name}', *over,
                              'train.max_steps=6', 'train.batch_size=4', 'probe.n_seqs=4', 'probe.train_seqs=4',
                              'log.ckpt_steps={every: 3}', 'measure.hessian=false', 'measure.delta_loss=false'])
     save_config(cfg, tmp_path / 'cfg.yaml')
     assert train.main([str(tmp_path / 'cfg.yaml')]) == 0
-    runs = tmp_path / 'runs' / 't'
+    return tmp_path / 'runs' / 't'
+
+
+def test_swaps_with_smoothed_muon(tmp_path, monkeypatch):
+    """Out of smuon: the shadow states. Into smuon from a parent without its shadow: Muon's state."""
+    runs = train_tiny(tmp_path, monkeypatch, 'smuon_d0', 'optimizer=smuon', 'shadow=[adamw, muon]', 'log.fork_steps=[3]')
+    state = torch.load(runs / 'smuon_d0' / 'fork' / '0000003.pt')['optimizer']
+    assert set(state) == {'smuon', 'adamw', 'muon'}
+    own, shadow = (state[o]['state'] for o in ('smuon', 'muon'))
+    assert all(v['smooth_step'] == 3 and 'smooth_buffer' in v for v in own.values() if 'momentum_buffer' in v)
+    assert all(torch.equal(v['momentum_buffer'], shadow[k]['momentum_buffer'])  # the momentum does not see the smoothing
+               for k, v in own.items() if 'momentum_buffer' in v)
+    train_tiny(tmp_path, monkeypatch, 'muon_d0', 'optimizer=muon', 'shadow=[adamw]', 'log.fork_steps=[3]')
+    for parent, new in (('smuon_d0', 'muon'), ('smuon_d0', 'adamw'), ('muon_d0', 'smuon')):
+        name = f'{parent}_to_{new}'
+        train_tiny(tmp_path, monkeypatch, name, f'optimizer={new}', f'fork.parent=t/{parent}', 'fork.step=3')
+        assert (runs / name / 'done').exists()
+
+
+def test_train_writes_ghost_runs(tmp_path, monkeypatch):
+    runs = train_tiny(tmp_path, monkeypatch, 'adamw_d0', 'optimizer=adamw', 'ghost=[adamw, muon]')
     for rule in ('adamw', 'muon'):
         g = runs / f'adamw_d0__ghost_{rule}'
         assert (g / 'done').exists() and load_config(g / 'config.yaml').ghost_of == 't/adamw_d0'
