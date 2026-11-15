@@ -173,7 +173,8 @@ def test_figures(root, tmp_path, monkeypatch):
     res = split.locate_split(runs_a, runs_b, n_boot=20)
     plots.divergence(runs_a, runs_b, res, tmp_path / 'div.png')
     traj = {r.id: dict(optimizer=r.optimizer, steps=[0, 1], loss=[2., 1.], xy=[[0., 0.], [1., 1.]]) for r in runs_a}
-    plots.divergence(runs_a, runs_b, res, tmp_path / 'div_traj.png', (traj, [1.5]), pairs=True)
+    plots.divergence(runs_a, runs_b, res, tmp_path / 'div_traj.png', (traj, [1.5]), pairs=True,
+                     runs_c=load_runs('syn/fast_d0'))  # a third optimizer
     plots.sharpness(runs_a[:1] + runs_b[:1] + load_runs('syn/fast_d0'), res, tmp_path / 'sharp.png')
     plots.anatomy(runs_a[:1] + runs_b[:1], tmp_path / 'anat.png')
     plots.anatomy(runs_a[:1], tmp_path / 'anat_layer.png', group='layer')
