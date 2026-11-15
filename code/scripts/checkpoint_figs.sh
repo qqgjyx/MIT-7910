@@ -40,7 +40,7 @@ python -m optsplit.analysis.trajectories "$MAIN/adamw_d[012]" "$MAIN/muon_d[012]
 python -m optsplit.analysis.plots divergence --runs-a "$MAIN/adamw_d*" --runs-b "$MAIN/muon_d*" \
     --split "$OUT/split_adamw_muon.json" --traj "$OUT/thin/trajectories_densmap.json" \
     --traj-steps $STEPS --traj-label-steps $LABEL_STEPS --traj-name-step "$NAME_STEP" --mark-step "$START" \
-    --linear-steps --max-loss "$MAX_LOSS" --pairs --log-offset "$OFFSET" --loss-ticks $TICKS --labels --traj-room 0.3 \
+    --linear-steps --max-loss "$MAX_LOSS" --pairs --log-offset "$OFFSET" --loss-ticks $TICKS --labels --traj-room 0.5 \
     --val-runs "$MAIN/adamw_d*" "$MAIN/muon_d*" --out "$F" --name divergence_umap_adamw_muon.pdf
 # Fig 2 and the tables: metrics at equal training loss. The loss levels end at the lowest loss every run reaches, so
 # the AdamW/Muon comparison (rank/) is made without SGD, and the SGD table from all three (rank_sgd/).
@@ -50,7 +50,7 @@ python -m optsplit.analysis.rank_metrics "$MAIN/*_d[012]" "$SGD/*" --max-loss "$
     --report "$LEVEL_SGD" --out "$OUT/rank_sgd" > "$OUT/rank_sgd.txt"
 python -m optsplit.analysis.ckpt_figs ranking --metrics "$OUT/rank/metrics.json" --pairs adamw/muon --level "$LEVEL" \
     --keys stable_rank eff_rank spectral sv_spread update_align lambda_max hess_trace mlp_active dist_init_rel \
-    --size 3.4 1.35 --out "$F/ranking.pdf"
+    --size 3.4 1.35 --xticks 0.2 0.5 1 2 5 --out "$F/ranking.pdf"
 python optsplit/analysis/metric_ratios.py "$OUT/rank/metrics.json" A "$LEVEL" > "$OUT/table_adamw_muon.tex"
 python optsplit/analysis/metric_ratios.py "$OUT/rank_sgd/metrics.json" B "$LEVEL_SGD" > "$OUT/table_sgd.tex"
 # Fig 3: metrics of the swapped runs against the step
