@@ -145,13 +145,15 @@ def divergence(runs_a, runs_b, split, path, traj=None, pairs=False, linear_steps
 
 
 def panel_labels(axes):
-    """(a), (b), ... just above the top left corner of each panel, or before its title (then moved to the left)."""
+    """(a), (b), ... just above the top left corner of each panel, or before its title (then moved to the left);
+    after (z): (aa), (ab), ..."""
     for i, ax in enumerate(axes):
+        label = f"({'a' * (i // 26)}{chr(97 + i % 26)})"
         if ax.get_title():
-            ax.set_title(f'({chr(97 + i)}) {ax.get_title()}', loc='left')
+            ax.set_title(f'{label} {ax.get_title()}', loc='left')
             ax.set_title('')
         else:
-            ax.annotate(f'({chr(97 + i)})', (0, 1), xycoords='axes fraction', xytext=(0, 3),
+            ax.annotate(label, (0, 1), xycoords='axes fraction', xytext=(0, 3),
                         textcoords='offset points', ha='right', va='bottom')
 
 
