@@ -37,7 +37,7 @@ def _t_star_step(split, run):
 
 def divergence(runs_a, runs_b, split, path, traj=None, pairs=False, linear_steps=False, max_loss=None, traj_steps=(),
                traj_label_steps=(), val_runs=None, mark_step=None, traj_name_step=None, log_offset=None,
-               labels=False, loss_ticks=None, traj_room=0.):
+               labels=False, loss_ticks=None, traj_room=0., runs_c=()):
     """Left: distance by step for the cross pairs (same data seed) and the noise-floor pairs.
     Right: loss-matched distance with the floor band (or, with `pairs`, every pair as on the left), the episodes
     above the floor (shaded), the first exceedance t* (dotted) and the persistent split (dashed, with its CI).
@@ -50,10 +50,12 @@ def divergence(runs_a, runs_b, split, path, traj=None, pairs=False, linear_steps
     line at that step instead of t*. With `pairs`, the step- and loss-matched panels share their y axis and have no
     t*, episodes or split. `labels`: (a), (b), ... at the top left of the panels. `loss_ticks`: the loss-matched
     panel's ticks with `log_offset` (default LOSS_TICKS). `traj_room`: blank width right of the trajectories, as a
-    fraction of theirs, so that the legend does not cover them."""
+    fraction of theirs, so that the legend does not cover them. `runs_c`: a third optimizer, in the step- and
+    loss-matched panels in one colour (C2, its colour in the other panels): against the first (solid) and the second
+    (dashed) on the same data order, and its own pairs of data orders (thin, light)."""
     metric = split['metric']
     ylabel = {'js': 'JS (bits)'}.get(metric, metric)
-    A, B = by_seed(runs_a), by_seed(runs_b)
+    A, B, C = by_seed(runs_a), by_seed(runs_b), by_seed(runs_c)
     name = lambda r: (lambda n: NAMES.get(n, n))(r.id.split('/')[-1].rsplit('_d', 1)[0])  # without the data order
 
     def lines(ax, curve, x):
@@ -65,6 +67,14 @@ def divergence(runs_a, runs_b, split, path, traj=None, pairs=False, linear_steps
                 c = curve(G[s], G[t])
                 ax.plot(c[x], c[metric], color=color, lw=0.8,
                         label=f'{name(G[s])}, other data order' if i == 0 else None)
+        for G, ls in ((A, '-'), (B, '--')) if C else ():
+            for i, s in enumerate(sorted(G.keys() & C.keys())):
+                c = curve(G[s], C[s])
+                ax.plot(c[x], c[metric], color='C2', ls=ls, label=f'{name(G[s])} vs {name(C[s])}' if i == 0 else None)
+        for i, (s, t) in enumerate(combinations(sorted(C), 2)):
+            c = curve(C[s], C[t])
+            ax.plot(c[x], c[metric], color='C2', lw=0.8, alpha=0.4,
+                    label=f'{name(C[s])}, other data order' if i == 0 else None)
 
     n = 3 + bool(val_runs)
     fig, axes = plt.subplots(1, n, figsize=(13 * n / 3, 3.4))  # panels of the same size as with three
@@ -412,12 +422,13 @@ def _json(path):
 
 def fig_divergence(runs_a, runs_b, split=None, metric='js', traj=None, pairs=False, linear_steps=False, max_loss=None,
                    traj_steps=(), traj_label_steps=(), val_runs=None, mark_step=None, traj_name_step=None,
-                   log_offset=None, labels=False, loss_ticks=None, traj_room=0., out=None, name='divergence'):
+                   log_offset=None, labels=False, loss_ticks=None, traj_room=0., runs_c=(), out=None,
+                   name='divergence'):
     runs_a, runs_b = load_runs(runs_a), load_runs(runs_b)
     divergence(runs_a, runs_b, _json(split) or locate_split(runs_a, runs_b, metric=metric, n_boot=200),
                _path(out, name), traj and trajectories.parse(traj), pairs, linear_steps, max_loss, traj_steps,
                traj_label_steps, val_runs and load_runs(val_runs), mark_step, traj_name_step, log_offset, labels,
-               loss_ticks, traj_room)
+               loss_ticks, traj_room, load_runs(runs_c) if runs_c else ())
 
 
 def fig_sharpness(runs, split=None, out=None, name='sharpness'):
@@ -476,6 +487,7 @@ def main():
     s = sub.add_parser('divergence', parents=[common])
     s.add_argument('--runs-a', nargs='+', required=True)
     s.add_argument('--runs-b', nargs='+', required=True)
+    s.add_argument('--runs-c', nargs='+', help='a third optimizer, added to the step- and loss-matched panels')
     s.add_argument('--split', help='JSON from optsplit.analysis.split (computed if omitted)')
     s.add_argument('--metric', default='js', choices=['js', 'disagree'])
     s.add_argument('--traj', metavar='JSON[@L1,L2,...]',

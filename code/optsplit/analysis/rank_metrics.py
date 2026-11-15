@@ -61,8 +61,8 @@ METRICS = {
     'resid_rms': ('internals', 'residual RMS'),
     'feature_erank': ('internals', 'eff. rank of features'),
 }
-COLORS = {'adamw': 'C0', 'muon': 'C1', 'sgd': 'C2'}
-NAMES = {'adamw': 'AdamW', 'muon': 'Muon', 'sgd': 'SGD'}
+COLORS = {'adamw': 'C0', 'muon': 'C1', 'sgd': 'C2', 'smuon': 'C2'}  # smuon and sgd never share a document figure
+NAMES = {'adamw': 'AdamW', 'muon': 'Muon', 'sgd': 'SGD', 'smuon': 'Smoothed Muon'}
 CKPT_SKIP = {'step', 'train_loss'}
 
 
@@ -157,7 +157,7 @@ def mean_abs_pairs(vals):
 
 
 def rank(runs, refs, levels, cache):
-    opts = [o for o in ('adamw', 'muon', 'sgd') if any(r.optimizer == o for r in runs)]
+    opts = [o for o in ('adamw', 'muon', 'smuon', 'sgd') if any(r.optimizer == o for r in runs)]
     seeds = sorted({r.data_seed for r in runs})
     by = {(r.optimizer, r.data_seed): r for r in runs}
     pts = {r.id: run_points(r, refs, cache) for r in runs}

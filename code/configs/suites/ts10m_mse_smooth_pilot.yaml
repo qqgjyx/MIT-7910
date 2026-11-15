@@ -20,3 +20,4 @@ overrides:
 name: "smuon_a{optim.smuon.smooth}_lr{optim.smuon.lr}"
 runs:
   - {optim.smuon.smooth: [0.4, 0.5, 0.6, 0.7, 0.8], optim.smuon.lr: 0.005}
+  - {optim.smuon.smooth: [0.65, 0.75], optim.smuon.lr: 0.005}
