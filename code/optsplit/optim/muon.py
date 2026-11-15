@@ -3,6 +3,7 @@
 Only the single-device optimizer with auxiliary AdamW is kept. One change: `muon_update` no longer
 overwrites `grad` in place (upstream does `grad.lerp_`), so a shadow optimizer or ghost stepping after Muon on
 the same gradients sees them unchanged. Added, as ablations (DESIGN.md): `orthogonalize=False` and `sv_power=p`.
+Added, as the optimizer `smuon` (DESIGN.md): `smooth=a`, the step is a running average of Muon's updates.
 """
 
 import torch
@@ -61,8 +62,9 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                 group["weight_decay"] = group.get("weight_decay", 0)
                 group["orthogonalize"] = group.get("orthogonalize", True)
                 group["sv_power"] = group.get("sv_power", None)
+                group["smooth"] = group.get("smooth", None)
                 assert set(group.keys()) == set(["params", "lr", "momentum", "weight_decay", "use_muon",
-                                                 "orthogonalize", "sv_power"])
+                                                 "orthogonalize", "sv_power", "smooth"])
             else:
                 group["lr"] = group.get("lr", 3e-4)
                 group["betas"] = group.get("betas", (0.9, 0.95))
@@ -88,6 +90,14 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                         state["momentum_buffer"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"],
                                          orthogonalize=group["orthogonalize"], sv_power=group["sv_power"])
+                    a = group["smooth"]
+                    if a is not None:  # U_t = (1 - a) U_{t-1} + a O_t, divided by 1 - (1 - a)^t; a = 1 is Muon
+                        if "smooth_buffer" not in state:  # also when started from a Muon state (a swap)
+                            state["smooth_buffer"] = torch.zeros_like(p)
+                            state["smooth_step"] = 0
+                        state["smooth_step"] += 1
+                        state["smooth_buffer"].lerp_(update.reshape(p.shape).to(p.dtype), a)
+                        update = state["smooth_buffer"] / (1 - (1 - a) ** state["smooth_step"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
             else:

@@ -84,7 +84,9 @@ def main(argv):
         start = cfg.fork.step
         ck = torch.load(run_dir(cfg.fork.parent) / 'fork' / f'{start:07d}.pt', map_location=device)
         model.load_state_dict(ck['model'])
-        load_optimizer_state(opt, ck['optimizer'][cfg.optimizer])
+        states = ck['optimizer']
+        # a parent without smuon in shadow: smuon starts from Muon's state and its average of the steps restarts
+        load_optimizer_state(opt, states.get(cfg.optimizer) or states[{'smuon': 'muon'}[cfg.optimizer]])
         shadow.load(ck['optimizer'])
         print(f'forked from {cfg.fork.parent} at step {start}')
     torch.save({'y': probe.targets()}, out / 'preds' / 'targets.pt')

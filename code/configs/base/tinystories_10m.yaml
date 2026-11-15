@@ -7,6 +7,7 @@ train: {batch_size: 128, max_steps: 10000}
 optim:
   adamw: {lr: 2.0e-3}
   muon: {adam_lr: 2.0e-3}
+  smuon: {adam_lr: 2.0e-3}
 schedule: {warmup_steps: 200, decay: cosine, min_lr_frac: 0.1}
 log:
   eval_steps: {every: 250, geometric: 30}

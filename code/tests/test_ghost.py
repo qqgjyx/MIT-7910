@@ -1,5 +1,6 @@
-"""Open-loop ghosts (optim.Ghost) and the Muon ablations (orthogonalize=false, sv_power)."""
+"""Open-loop ghosts (optim.Ghost), the Muon ablations (orthogonalize=false, sv_power) and smoothed Muon (smooth)."""
 
+import copy
 import json
 
 import numpy as np
@@ -9,8 +10,8 @@ import torch
 from optsplit import train
 from optsplit.config import load_config, save_config
 from optsplit.models import build_model
-from optsplit.optim import Ghost, build_optimizer, set_lr
-from optsplit.optim.muon import muon_update
+from optsplit.optim import Ghost, build_optimizer, load_optimizer_state, set_lr
+from optsplit.optim.muon import SingleDeviceMuonWithAuxAdam, muon_update
 
 TINY = ['model.n_layer=2', 'model.n_embd=16', 'model.n_head=2', 'model.block_size=8']
 
@@ -77,6 +78,47 @@ def test_muon_sv_power():
 @pytest.mark.parametrize('option', ['orthogonalize=false', 'sv_power=0.5'])
 def test_muon_options_reach_the_optimizer(option):
     assert differ(run('muon', '[]')[0], run('muon', '[]', extra=[f'optim.muon.{option}'])[0])
+
+
+def test_smoothed_muon_with_a_1_is_muon():
+    assert not differ(run('muon', '[]')[0], run('smuon', '[]', extra=['optim.smuon.smooth=1.0'])[0])
+    assert differ(run('muon', '[]')[0], run('smuon', '[]')[0])
+
+
+def muon_steps(grads, smooth=None, reload_at=None, state=None):
+    """The steps -(W_t - W_{t-1}) / lr of one matrix on fixed gradients (Muon's update does not depend on W)."""
+    W = torch.zeros_like(grads[0])
+    make = lambda: SingleDeviceMuonWithAuxAdam([dict(params=[W], lr=0.5, use_muon=True, smooth=smooth)])
+    opt, steps = make(), []
+    if state is not None:
+        load_optimizer_state(opt, state)
+    for t, g in enumerate(grads):
+        if t == reload_at:  # as a resumed run: a new optimizer with the saved state
+            saved, opt = opt.state_dict(), make()
+            load_optimizer_state(opt, saved)
+        W.grad, before = g.clone(), W.clone()
+        opt.step()
+        assert torch.equal(W.grad, g)  # shadow optimizers and ghosts step on the same gradients afterwards
+        steps.append((before - W) / 0.5)
+    return steps, opt
+
+
+def test_smoothed_muon_recursion():
+    torch.manual_seed(0)
+    grads, a = [torch.randn(16, 48) for _ in range(6)], 0.3
+    O, muon = muon_steps(grads)
+    steps, _ = muon_steps(grads, smooth=a)
+    U = torch.zeros(16, 48)
+    for t, (o, s) in enumerate(zip(O, steps), 1):
+        U = (1 - a) * U + a * o
+        assert torch.allclose(s, U / (1 - (1 - a) ** t), atol=1e-5)
+    assert torch.allclose(steps[0], O[0], atol=1e-6)  # bias correction: the first step is Muon's, at full size
+    resumed, _ = muon_steps(grads, smooth=a, reload_at=3)
+    assert all(torch.equal(s, r) for s, r in zip(steps, resumed))
+    # started from a Muon state (a swap from a parent without smuon in shadow): the average restarts
+    state = lambda: copy.deepcopy(muon.state_dict())  # loading shares the tensors, stepping changes them
+    swapped, _ = muon_steps(grads[:1], smooth=a, state=state())
+    assert torch.allclose(swapped[0], muon_steps(grads[:1], state=state())[0][0], atol=1e-6)
 
 
 def test_train_writes_ghost_runs(tmp_path, monkeypatch):
