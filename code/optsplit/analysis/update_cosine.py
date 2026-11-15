@@ -26,7 +26,8 @@ def cosines(run):
 
     def load(s):
         state = torch.load(run.ckpt_path(s), map_location='cpu')['model']
-        return [torch.cat([v.flatten().float() for v in vs]) for vs in (state.values(), hidden(state))]
+        # float64: on the CPU the float32 sums over 14M entries are off by 0.002 (not on the GPU, in trajectory.py)
+        return [torch.cat([v.flatten().double() for v in vs]) for vs in (state.values(), hidden(state))]
 
     out = {}
     for t in sorted(s for s in have if s + 1 in have and s + 2 in have and s - 1 not in have):

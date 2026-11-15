@@ -139,12 +139,13 @@ def train_tiny(tmp_path, monkeypatch, name, *over):
 
 def test_swaps_with_smoothed_muon(tmp_path, monkeypatch):
     """Out of smuon: the shadow states. Into smuon from a parent without its shadow: Muon's state."""
-    runs = train_tiny(tmp_path, monkeypatch, 'smuon_d0', 'optimizer=smuon', 'shadow=[adamw, muon]', 'log.fork_steps=[3]')
+    runs = train_tiny(tmp_path, monkeypatch, 'smuon_d0', 'optimizer=smuon', 'shadow=[adamw, muon]',
+                      'log.fork_steps=[3]')
     state = torch.load(runs / 'smuon_d0' / 'fork' / '0000003.pt')['optimizer']
     assert set(state) == {'smuon', 'adamw', 'muon'}
     own, shadow = (state[o]['state'] for o in ('smuon', 'muon'))
     assert all(v['smooth_step'] == 3 and 'smooth_buffer' in v for v in own.values() if 'momentum_buffer' in v)
-    assert all(torch.equal(v['momentum_buffer'], shadow[k]['momentum_buffer'])  # the momentum does not see the smoothing
+    assert all(torch.equal(v['momentum_buffer'], shadow[k]['momentum_buffer'])  # the momentum is Muon's
                for k, v in own.items() if 'momentum_buffer' in v)
     train_tiny(tmp_path, monkeypatch, 'muon_d0', 'optimizer=muon', 'shadow=[adamw]', 'log.fork_steps=[3]')
     for parent, new in (('smuon_d0', 'muon'), ('smuon_d0', 'adamw'), ('muon_d0', 'smuon')):
