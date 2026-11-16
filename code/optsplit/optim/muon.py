@@ -3,7 +3,7 @@
 Only the single-device optimizer with auxiliary AdamW is kept. One change: `muon_update` no longer
 overwrites `grad` in place (upstream does `grad.lerp_`), so a shadow optimizer or ghost stepping after Muon on
 the same gradients sees them unchanged. Added, as ablations (DESIGN.md): `orthogonalize=False`, `sv_power=p` and
-`two_track_steps=K` (sv_power by matrix products instead of the SVD).
+`two_track_steps=K` and `lc_steps=K` (sv_power by matrix products instead of the SVD).
 """
 
 import torch
@@ -67,6 +67,43 @@ def sv_power_two_track(G, p, steps):
     return Z.mT if G.size(-2) > G.size(-1) else Z
 
 
+# LC (linear combination of Newton-Schulz iterates): for (p, steps), the quintic coefficients (a, b, c) of each step and
+# the weights w_0..w_steps of the iterates X_0..X_steps. Fitted on real momentum matrices (scripts/lc/final_coeffs.json,
+# sets p-0.3_lc5_eps3.0e-03 and p-0.3_lc6_eps1.0e-03; scripts/lc/check_snippet.py checked them on momentum matrices
+# that are not in the repository).
+LC = {
+    (-0.3, 5): (((3.5969, -7.7746, 4.8280), (3.5004, -7.1445, 4.1116), (3.4189, -6.6980, 3.8465),
+                 (3.0402, -4.9130, 2.8709), (1.8013, -1.6495, 0.84815)),
+                (-0.88949, -1.2850, -1.6349, -0.90775, -11.758, 16.278)),
+    (-0.3, 6): (((3.5791, -7.6099, 4.4535), (3.1263, -5.3070, 3.1688), (3.3447, -6.2419, 3.3154),
+                 (3.4107, -6.5906, 3.5226), (3.0637, -5.0036, 2.8968), (2.7706, -3.7884, 2.0046)),
+                (-1.0761, -0.40821, -1.7443, -2.3533, -1.2355, -3.8680, 10.337)),
+}
+
+
+def sv_power_lc(G, p, steps):
+    """Approximate U S^p V^T of G (up to a scale) with 3 * steps matrix products, Muon's cost for 5 steps: the weighted
+    sum of the iterates of a Newton-Schulz iteration with its own coefficients, started at G / |G|_S8 (Schatten-8 norm,
+    from the first squared Gram matrix). Singular values above 3e-3 (5 steps) or 1e-3 (6 steps) of |G|_S8 come out as
+    S^p within about +-13% (+-11%); smaller ones get less. Iterates in bfloat16 as in Muon, the sum in float32."""
+    coeffs, w = LC[p, steps]
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    out = 0
+    for k, (a, b, c) in enumerate(coeffs):
+        A = X @ X.mT
+        A2 = A @ A
+        if k == 0:
+            s = A2.float().norm(dim=(-2, -1), keepdim=True) ** 0.25
+            X, A, A2 = (X / s).bfloat16(), (A / s ** 2).bfloat16(), (A2 / s ** 4).bfloat16()
+        out = out + w[k] * X.float()
+        X = a * X + (b * A + c * A2) @ X
+    out = out + w[-1] * X.float()
+    return out.mT if G.size(-2) > G.size(-1) else out
+
+
 def sv_power_exact(G, p):
     """U S^p V^T of G (p = 0: exact orthogonalization); for p < 0 with relative singular values, floored at SV_FLOOR."""
     U, S, Vh = torch.linalg.svd(G, full_matrices=False)
@@ -76,7 +113,7 @@ def sv_power_exact(G, p):
 
 
 def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, orthogonalize=True, sv_power=None,
-                two_track_steps=None):
+                two_track_steps=None, lc_steps=None):
     momentum.lerp_(grad, 1 - beta)
     update = grad.lerp(momentum, beta) if nesterov else momentum
     if update.ndim == 4:  # conv filters
@@ -86,6 +123,8 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, orthogonal
     else:  # ablations, rescaled to the Frobenius norm of an orthogonal update, sqrt(min(n_out, n_in))
         if two_track_steps:  # U S^p V^T of the momentum by matrix products
             update = sv_power_two_track(update, sv_power, two_track_steps)
+        elif lc_steps:
+            update = sv_power_lc(update, sv_power, lc_steps)
         elif sv_power is not None:  # the same by an exact SVD
             update = sv_power_exact(update.float(), sv_power)
         update = update * (min(update.shape[-2:]) ** 0.5 / (update.norm() + 1e-7))
@@ -114,9 +153,11 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                 group["orthogonalize"] = group.get("orthogonalize", True)
                 group["sv_power"] = group.get("sv_power", None)
                 group["two_track_steps"] = group.get("two_track_steps", None)
+                group["lc_steps"] = group.get("lc_steps", None)
                 assert not group["two_track_steps"] or group["sv_power"] in TWO_TRACK, "two-track: no coefficients"
+                assert not group["lc_steps"] or (group["sv_power"], group["lc_steps"]) in LC, "LC: no coefficients"
                 assert set(group.keys()) == set(["params", "lr", "momentum", "weight_decay", "use_muon",
-                                                 "orthogonalize", "sv_power", "two_track_steps"])
+                                                 "orthogonalize", "sv_power", "two_track_steps", "lc_steps"])
             else:
                 group["lr"] = group.get("lr", 3e-4)
                 group["betas"] = group.get("betas", (0.9, 0.95))
@@ -142,7 +183,7 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                         state["momentum_buffer"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"],
                                          orthogonalize=group["orthogonalize"], sv_power=group["sv_power"],
-                                         two_track_steps=group["two_track_steps"])
+                                         two_track_steps=group["two_track_steps"], lc_steps=group["lc_steps"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
             else:
@@ -167,9 +208,10 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
 def two_track_errors(opt, steps=(5, 8, 12)):
     """Two-track update against the exact one (float64 SVD) on the matrices the last `opt.step()` used (call it before
     zero_grad): per matrix and number of steps, the cosine with the exact update and the relative error
-    |Z - E|_F / |E|_F after rescaling both to the same norm (so error^2 = 2 - 2 cosine). `svd32` is the float32 SVD
-    of the exact method, for scale."""
-    out = {f'{kind}_{k}': [] for k in (*steps, 'svd32') for kind in ('err', 'cos')}
+    |Z - E|_F / |E|_F after rescaling both to the same norm (so error^2 = 2 - 2 cosine). `lc5`, `lc6`: the LC update
+    (p = -0.3 only); `svd32`: the float32 SVD of the exact method, for scale."""
+    lc = [k for (q, k) in LC if q == opt.param_groups[0]["sv_power"]]
+    out = {f'{kind}_{k}': [] for k in (*steps, *(f'lc{k}' for k in lc), 'svd32') for kind in ('err', 'cos')}
     for group in opt.param_groups:
         if not group["use_muon"]:
             continue
@@ -178,6 +220,7 @@ def two_track_errors(opt, steps=(5, 8, 12)):
             N = param.grad.lerp(opt.state[param]["momentum_buffer"], group["momentum"]).float()
             exact = sv_power_exact(N.double(), p)
             approx = {k: sv_power_two_track(N, p, k) for k in steps}
+            approx.update({f'lc{k}': sv_power_lc(N, p, k) for k in lc})
             approx['svd32'] = sv_power_exact(N, p)
             for k, Z in approx.items():
                 cos = ((Z.double() * exact).sum() / (Z.double().norm() * exact.norm())).item()

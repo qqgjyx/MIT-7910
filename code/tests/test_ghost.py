@@ -1,4 +1,4 @@
-"""Open-loop ghosts (optim.Ghost) and the Muon ablations (orthogonalize=false, sv_power, two_track_steps)."""
+"""Open-loop ghosts (optim.Ghost) and the Muon ablations (orthogonalize=false, sv_power, two_track_steps, lc_steps)."""
 
 import json
 
@@ -10,7 +10,7 @@ from optsplit import train
 from optsplit.config import load_config, save_config
 from optsplit.models import build_model
 from optsplit.optim import Ghost, build_optimizer, set_lr
-from optsplit.optim.muon import SV_FLOOR, muon_update, sv_power_two_track, two_track_errors
+from optsplit.optim.muon import SV_FLOOR, muon_update, sv_power_lc, sv_power_two_track, two_track_errors
 
 TINY = ['model.n_layer=2', 'model.n_embd=16', 'model.n_head=2', 'model.block_size=8']
 
@@ -154,13 +154,39 @@ def test_two_track_errors():
     opt.step()
     rec = two_track_errors(opt)
     n = len(opt.param_groups[0]['params'])
-    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'svd32')}
+    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'lc5', 'lc6', 'svd32')}
     assert all(len(v) == n for v in rec.values())
     assert all(e == pytest.approx(max(0, 2 - 2 * c) ** 0.5)
                for k in (5, 8, 12) for e, c in zip(rec[f'err_{k}'], rec[f'cos_{k}']))
     # no bound on the values: these gradients have a null direction, which only the exact update steps along
     assert all(abs(c) <= 1 + 1e-9 for k, v in rec.items() if k.startswith('cos') for c in v)
     json.dumps(rec)
+
+
+@pytest.mark.parametrize('steps,eps,band', [(5, 3e-3, 1.3), (6, 1e-3, 1.4)])
+@pytest.mark.parametrize('shape', [(128, 128), (64, 256), (256, 64)])
+def test_lc_power_law_above_the_cutoff(steps, eps, band, shape):
+    """LC (bfloat16 iterates): c S^p for S above eps of the Schatten-8 norm, much less far below; with no singular value
+    below eps the update is the exact one up to about 0.1."""
+    G, U, S, V = wide_spectrum(shape, low=-6.0)
+    Z = sv_power_lc(G, -0.3, steps).double()
+    z = ((U.T @ Z) * V.T).sum(1)
+    rel = S / S.pow(8).sum() ** 0.125
+    ratio = z / rel.pow(-0.3)
+    above = ratio[rel >= eps]
+    assert above.min() > 0 and above.max() / above.min() < band  # about +-13% (5 steps) and +-15% (6 steps)
+    assert ratio[rel < eps / 100].abs().max() < 0.05 * above.min()
+    grad = wide_spectrum(shape, low=-2.0)[0]  # all singular values above both cutoffs
+    exact = muon_update(grad, torch.zeros(shape), sv_power=-0.3)
+    approx = muon_update(grad, torch.zeros(shape), sv_power=-0.3, lc_steps=steps)
+    assert approx.dtype == torch.float32 and ((approx - exact).norm() / exact.norm()).item() < 0.15
+
+
+def test_lc_options_reach_the_optimizer():
+    power = ['optim.muon.sv_power=-0.3']
+    assert differ(run('muon', '[]', extra=power)[0], run('muon', '[]', extra=power + ['optim.muon.lc_steps=5'])[0])
+    with pytest.raises(AssertionError):  # coefficients for p = -0.3 with 5 or 6 steps only
+        run('muon', '[]', extra=['optim.muon.sv_power=-0.3', 'optim.muon.lc_steps=4'])
 
 
 @pytest.mark.parametrize('option', ['orthogonalize=false', 'sv_power=0.5'])

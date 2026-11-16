@@ -2,9 +2,10 @@
 
     python -m optsplit.analysis.two_track --out <dir>
 
-Per method (exact U S^p V^T at p = -0.3, two-track with 12, 8 and 5 steps, plain Muon, exact p = 0): the matrix
-products per step, the time per training step measured in the pilot (scripts/two_track_pilot.sh: every method on the
-same GPU, two runs side by side), the error of the update against the exact one on the run's own momentum (`two_track`
+Per method (exact U S^p V^T at p = -0.3, two-track with 12, 8 and 5 steps, LC with 5 and 6 steps, plain Muon,
+exact p = 0): the matrix products per step, the time per training step measured in a pilot (scripts/two_track_pilot.sh:
+the methods one after another on one GPU, two runs side by side; LC in a second pilot, beside Muon and two-track 12),
+the error of the update against the exact one on the run's own momentum (`two_track`
 records), the final validation loss per data order and the step at which the training loss reaches a level.
 Writes <dir>/two_track.txt, <dir>/two_track.json and <dir>/figures/two_track_val.png.
 """
@@ -23,14 +24,18 @@ from optsplit.analysis.io import Run
 from optsplit.analysis.plots import panel_labels
 from optsplit.analysis.rank_metrics import at_loss
 
-# label, run (data order {d}), pilot run, matrix products per step, error key, line style
+# label, run (data order {d}), pilot run (data orders 0, 1), matrix products per step, error key, line style
+P1, P2 = 'ts10m_mse_tt_pilot', 'ts10m_mse_tt_pilot2'
 METHODS = [
-    ('exact SVD, $p=-0.3$', 'ts10m_mse_svp/muon_p-0.3_lr0.005_d{d}', 'svd_p-0.3', 'SVD', 'svd32', dict(color='#e34948')),
-    ('two-track, $K=12$', 'ts10m_mse_tt/muon_p-0.3_k12_d{d}', 'tt12', '47', '12', dict(color='#2a78d6')),
-    ('two-track, $K=8$', 'ts10m_mse_tt/muon_p-0.3_k8_d{d}', 'tt8', '31', '8', dict(color='#008300')),
-    ('two-track, $K=5$', 'ts10m_mse_tt/muon_p-0.3_k5_d{d}', 'tt5', '19', '5', dict(color='#eda100')),
-    ('Muon (Newton–Schulz)', 'ts10m_mse_main/muon_d{d}', 'muon', '15', None, dict(color='k', ls='--')),
-    ('exact SVD, $p=0$', 'ts10m_mse_svp/muon_p0_lr0.005_d{d}', 'svd_p0', 'SVD', None, dict(color='0.55')),
+    ('exact SVD, $p=-0.3$', 'ts10m_mse_svp/muon_p-0.3_lr0.005_d{d}', f'{P1}/svd_p-0.3', 'SVD', 'svd32',
+     dict(color='#e34948')),
+    ('two-track, $K=12$', 'ts10m_mse_tt/muon_p-0.3_k12_d{d}', f'{P1}/tt12', '47', '12', dict(color='#2a78d6')),
+    ('two-track, $K=8$', 'ts10m_mse_tt/muon_p-0.3_k8_d{d}', f'{P1}/tt8', '31', '8', dict(color='#008300')),
+    ('two-track, $K=5$', 'ts10m_mse_tt/muon_p-0.3_k5_d{d}', f'{P1}/tt5', '19', '5', dict(color='#eda100')),
+    ('LC5', 'ts10m_mse_tt/muon_p-0.3_lc5_d{d}', f'{P2}/lc5', '15', 'lc5', dict(color='#6250d6', ls='-.')),
+    ('LC6', 'ts10m_mse_tt/muon_p-0.3_lc6_d{d}', f'{P2}/lc6', '18', 'lc6', dict(color='#1baf7a', ls='-.')),
+    ('Muon (Newton–Schulz)', 'ts10m_mse_main/muon_d{d}', f'{P1}/muon', '15', None, dict(color='k', ls='--')),
+    ('exact SVD, $p=0$', 'ts10m_mse_svp/muon_p0_lr0.005_d{d}', f'{P1}/svd_p0', 'SVD', None, dict(color='0.55')),
 ]
 ORDERS = (0, 1, 2)
 
@@ -47,10 +52,10 @@ def update_error(runs, key):
     return (float(np.median(err)), float(np.max(err))) if err else (np.nan, np.nan)
 
 
-def row(label, pattern, pilot, products, key, pilot_suite, level):
+def row(label, pattern, pilot, products, key, level):
     runs = {d: Run(pattern.format(d=d)) for d in ORDERS}
     runs = {d: r for d, r in runs.items() if r.done}
-    timed = [Run(f'{pilot_suite}/{pilot}_d{d}') for d in (0, 1)]
+    timed = [Run(f'{pilot}_d{d}') for d in (0, 1)]
     hit = lambda r: float(at_loss(np.c_[r.series('eval', 'train_loss')[1], r.series('eval', 'train_loss')[0]], [level])[0])
     # the exact method's own error (float32 against float64 SVD) is logged by the pilot's exact runs
     err = update_error(timed if key == 'svd32' else runs.values(), key) if key else (np.nan, np.nan)
@@ -84,7 +89,7 @@ def curves(drawn, out, offset, ticks, zoom):
     for ax in axes:
         ax.set_xlabel('step')
         ax.set_ylabel('validation loss')
-    fig.legend(handles.values(), handles.keys(), loc='outside lower center', ncol=6, frameon=False)
+    fig.legend(handles.values(), handles.keys(), loc='outside lower center', ncol=4, frameon=False)
     panel_labels(axes)
     fig.savefig(out, dpi=300)
     print(f'wrote {out}')
@@ -92,7 +97,6 @@ def curves(drawn, out, offset, ticks, zoom):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--pilot', default='ts10m_mse_tt_pilot')
     ap.add_argument('--level', type=float, default=0.65)
     ap.add_argument('--offset', type=float, default=0.5, help='loss axis of the whole run on log(L - offset)')
     ap.add_argument('--ticks', type=float, nargs='+', default=[1.0, 0.9, 0.8, 0.7, 0.65, 0.6, 0.57])
@@ -104,7 +108,7 @@ def main():
 
     rows, drawn = [], []
     for label, pattern, pilot, products, key, style in METHODS:
-        r, runs = row(label, pattern, pilot, products, key, args.pilot, args.level)
+        r, runs = row(label, pattern, pilot, products, key, args.level)
         rows.append(r)
         drawn.append((label, runs, style))
     mean = lambda v: f'{np.mean(list(v.values())):.4f}' if len(v) == len(ORDERS) else '-'

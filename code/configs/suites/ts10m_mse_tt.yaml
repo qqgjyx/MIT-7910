@@ -23,3 +23,9 @@ runs:
   - {optim.muon.sv_power: -0.3, optim.muon.two_track_steps: [12, 8, 5], train.data_seed: 0}
   - {optim.muon.sv_power: -0.5, optim.muon.two_track_steps: 12, train.data_seed: 0}
   - {optim.muon.sv_power: -0.3, optim.muon.two_track_steps: [12, 8, 5], train.data_seed: [1, 2]}
+# Added: LC (optim.muon.lc_steps, a weighted sum of Newton-Schulz iterates with 15 or 18 products, Muon's cost or 20% more),
+# which follows S^p only above 3e-3 or 1e-3 of the Schatten-8 norm. Does the tilt alone give the gain?
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [5, 6], train.data_seed: 0,
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [5, 6], train.data_seed: [1, 2],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}

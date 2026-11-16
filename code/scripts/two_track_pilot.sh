@@ -3,8 +3,9 @@
 # two runs side by side (data orders 0 and 1), so every method is timed on the same GPU with the same load: plain Muon,
 # two-track with 5, 8 and 12 steps, exact SVD at p = -0.3 and p = 0. 400 steps at the peak learning rate of
 # ts10m_mse_tt; the p = -0.3 runs log the two-track error against the exact update (log.two_track_check).
-#   sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh
-suite=ts10m_mse_tt_pilot
+#   sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh [method ...]   (default: all; SUITE=<name> for a new suite)
+# Second pilot (ts10m_mse_tt_pilot2): SUITE=ts10m_mse_tt_pilot2 ... muon tt12 lc5 lc6, so LC is timed beside both.
+suite=${SUITE:-ts10m_mse_tt_pilot}
 common="suite=$suite train.loss=mse optimizer=muon optim.muon.lr=0.005 train.max_steps=400 schedule.decay=constant
     measure.hessian=false measure.delta_loss=false log.preds=false log.ckpt_steps.every=0 log.ckpt_steps.geometric=0"
 check="optim.muon.sv_power=-0.3 log.two_track_check=[1,10,50,100,200,399]"
@@ -21,10 +22,12 @@ pair() {  # <name> [option ...]
     echo "finished $name"
 }
 
+declare -A opts=([muon]="" [tt5]="$check optim.muon.two_track_steps=5" [tt8]="$check optim.muon.two_track_steps=8"
+    [tt12]="$check optim.muon.two_track_steps=12" [lc5]="$check optim.muon.lc_steps=5"
+    [lc6]="$check optim.muon.lc_steps=6" [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0")
 nvidia-smi --query-gpu=name --format=csv,noheader
-pair muon
-pair tt5 $check optim.muon.two_track_steps=5
-pair tt8 $check optim.muon.two_track_steps=8
-pair tt12 $check optim.muon.two_track_steps=12
-pair svd_p-0.3 $check
-pair svd_p0 optim.muon.sv_power=0
+methods=("$@")
+[ $# -gt 0 ] || methods=(muon tt5 tt8 tt12 svd_p-0.3 svd_p0)
+for m in "${methods[@]}"; do
+    pair $m ${opts[$m]}
+done
