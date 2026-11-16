@@ -30,7 +30,10 @@ gradients, so the copy never feeds back. A ghost of the run's own rule reproduce
 with forks. `optim.muon.orthogonalize: false` (Nesterov momentum rescaled to the Frobenius norm of an orthogonal update) and
 `sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former;
 for p<0 the singular values are first divided by the largest and those below 1e-6 raised to 1e-6, so S^p stays finite)
-are Muon ablations.
+are Muon ablations. `two_track_steps: K` (with `sv_power` -0.3 or -0.5) replaces the SVD by 4K-1 matrix products
+(`sv_power_two_track` in `optim/muon.py`): exact enough for K = 12, while fewer steps leave out the smallest singular
+values. `log.two_track_check` lists steps at which a run logs the error of that update against the exact one
+(`two_track` records: per Muon matrix, cosine and relative error for K = 5, 8, 12).
 
 `train.loss` is `ce` (default) or `mse`: the squared error between the outputs z (the logits, no softmax) and the
 one-hot target, summed over the classes and averaged over tokens (Cohen et al. 2021). It is the loss everywhere:

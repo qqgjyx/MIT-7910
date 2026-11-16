@@ -19,6 +19,7 @@ from .measure import measure_step
 from .measure.step_sharpness import StepSharpness
 from .models import build_model
 from .optim import Ghost, Shadow, build_optimizer, load_optimizer_state, lr_mult, set_lr
+from .optim.muon import two_track_errors
 from .probe import Probe
 
 INTERRUPTED = 3
@@ -87,11 +88,13 @@ def main(argv):
         load_optimizer_state(opt, ck['optimizer'][cfg.optimizer])
         shadow.load(ck['optimizer'])
         print(f'forked from {cfg.fork.parent} at step {start}')
-    torch.save({'y': probe.targets()}, out / 'preds' / 'targets.pt')
+    if cfg.log.get('preds', True):
+        torch.save({'y': probe.targets()}, out / 'preds' / 'targets.pt')
 
     eval_steps = set(step_grid(cfg.log.eval_steps, T))
     ckpt_steps = set(step_grid(cfg.log.ckpt_steps, T)) | {0}
     fork_steps = set(cfg.log.fork_steps)
+    two_track_steps = set(cfg.log.get('two_track_check') or [])
     m = cfg.measure
     measuring = m.hessian or m.gradcov or m.delta_loss
     measure_steps = set(step_grid(m.steps, T)) if measuring else set()
@@ -123,7 +126,8 @@ def main(argv):
     for step in range(start, T + 1):
         if step in eval_steps:
             preds, rec = probe.evaluate(model)
-            torch.save(preds, out / 'preds' / f'{step:07d}.pt')
+            if cfg.log.get('preds', True):
+                torch.save(preds, out / 'preds' / f'{step:07d}.pt')
             log('eval', step, **rec)
         if step in ckpt_steps and not (out / 'ckpt' / f'{step:07d}.pt').exists():
             if cfg.log.ckpt_optimizer:  # first, so that a checkpoint always has its optimizer state
@@ -157,6 +161,8 @@ def main(argv):
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(params, clip)
         opt.step()
+        if step in two_track_steps:
+            log('two_track', step, **two_track_errors(opt))
         shadow.step()
         ghost.step(model, lr_mult(step, cfg))
         opt.zero_grad(set_to_none=True)

@@ -1,4 +1,4 @@
-"""Open-loop ghosts (optim.Ghost) and the Muon ablations (orthogonalize=false, sv_power)."""
+"""Open-loop ghosts (optim.Ghost) and the Muon ablations (orthogonalize=false, sv_power, two_track_steps)."""
 
 import json
 
@@ -10,7 +10,7 @@ from optsplit import train
 from optsplit.config import load_config, save_config
 from optsplit.models import build_model
 from optsplit.optim import Ghost, build_optimizer, set_lr
-from optsplit.optim.muon import SV_FLOOR, muon_update
+from optsplit.optim.muon import SV_FLOOR, muon_update, sv_power_two_track, two_track_errors
 
 TINY = ['model.n_layer=2', 'model.n_embd=16', 'model.n_head=2', 'model.block_size=8']
 
@@ -98,6 +98,71 @@ def test_muon_negative_sv_power():
         assert torch.equal(update(g, p), plain * (4 / (plain.norm() + 1e-7)))
 
 
+def wide_spectrum(shape, low=-6.0, seed=0):
+    """Matrix with singular values from 1 down to 10^low, evenly spaced in the logarithm, and its factors."""
+    gen = torch.Generator().manual_seed(seed)
+    n = min(shape)
+    U, _ = torch.linalg.qr(torch.randn(shape[0], n, generator=gen, dtype=torch.float64))
+    V, _ = torch.linalg.qr(torch.randn(shape[1], n, generator=gen, dtype=torch.float64))
+    S = torch.logspace(0, low, n, dtype=torch.float64)
+    return ((U * S) @ V.T).float(), U, S, V
+
+
+@pytest.mark.parametrize('p,tol', [(-0.3, 0.15), (-0.5, 0.2)])
+@pytest.mark.parametrize('shape', [(96, 96), (64, 256), (256, 64)])
+def test_two_track_12_steps_is_the_exact_negative_power(p, tol, shape):
+    grad = wide_spectrum(shape)[0]
+    update = lambda **kw: muon_update(grad, torch.zeros(shape), sv_power=p, **kw)
+    exact, approx = update(), update(two_track_steps=12)
+    assert approx.dtype == torch.float32 and approx.norm().item() == pytest.approx(exact.norm().item(), rel=1e-4)
+    assert ((approx - exact).norm() / exact.norm()).item() < tol  # about 0.1
+    with torch.autocast('cpu', dtype=torch.bfloat16):  # float32 whatever the autocast
+        assert torch.equal(update(two_track_steps=12), approx)
+    assert ((update(two_track_steps=5) - exact).norm() / exact.norm()).item() > 0.5  # 5 steps miss the small values
+
+
+@pytest.mark.parametrize('p,steps,band', [(-0.3, 5, 1.3), (-0.3, 8, 1.4), (-0.3, 12, 1.6),
+                                          (-0.5, 5, 1.65), (-0.5, 8, 2.0), (-0.5, 12, 2.7)])
+def test_two_track_power_law_above_the_cutoff(p, steps, band):
+    """The map on singular values is c S^p for S / |G|_F above 4 / 3.4445^steps; far below, much less than that."""
+    cutoff = 4 / 3.4445 ** steps
+    G, U, S, V = wide_spectrum((128, 128), low=-8.0 if steps < 12 else -6.0)  # float32 holds nothing under 1e-7
+    Z = sv_power_two_track(G, p, steps).double()
+    z = ((U.T @ Z) * V.T).sum(1)  # u_i^T Z v_i: G's singular vectors are Z's
+    rel = S / S.norm()
+    ratio = z / rel.pow(p)
+    above = ratio[rel >= cutoff]
+    assert above.min() > 0 and above.max() / above.min() < band
+    if steps < 12:
+        assert ratio[rel < cutoff / 100].abs().max() < 0.1 * above.min()
+
+
+def test_two_track_options_reach_the_optimizer():
+    power = ['optim.muon.sv_power=-0.3']
+    assert differ(run('muon', '[]', extra=power)[0], run('muon', '[]', extra=power + ['optim.muon.two_track_steps=5'])[0])
+    with pytest.raises(AssertionError):  # coefficients exist for p = -0.3 and -0.5 only
+        run('muon', '[]', extra=['optim.muon.sv_power=-0.1', 'optim.muon.two_track_steps=5'])
+
+
+def test_two_track_errors():
+    cfg = load_config(None, [*TINY, 'optimizer=muon', 'optim.muon.sv_power=-0.3'])
+    torch.manual_seed(0)
+    model = build_model(cfg, vocab_size=11)
+    opt = build_optimizer('muon', model, cfg)
+    x = torch.randint(0, 11, (4, 8))
+    model.loss(x, x.roll(-1, 1)).backward()
+    opt.step()
+    rec = two_track_errors(opt)
+    n = len(opt.param_groups[0]['params'])
+    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'svd32')}
+    assert all(len(v) == n for v in rec.values())
+    assert all(e == pytest.approx(max(0, 2 - 2 * c) ** 0.5)
+               for k in (5, 8, 12) for e, c in zip(rec[f'err_{k}'], rec[f'cos_{k}']))
+    # no bound on the values: these gradients have a null direction, which only the exact update steps along
+    assert all(abs(c) <= 1 + 1e-9 for k, v in rec.items() if k.startswith('cos') for c in v)
+    json.dumps(rec)
+
+
 @pytest.mark.parametrize('option', ['orthogonalize=false', 'sv_power=0.5'])
 def test_muon_options_reach_the_optimizer(option):
     assert differ(run('muon', '[]')[0], run('muon', '[]', extra=[f'optim.muon.{option}'])[0])
@@ -123,3 +188,23 @@ def test_train_writes_ghost_runs(tmp_path, monkeypatch):
     ckpt = lambda name: torch.load(runs / name / 'ckpt' / '0000006.pt')['model']
     own, real = ckpt('adamw_d0__ghost_adamw'), ckpt('adamw_d0')
     assert all(torch.equal(v, own[k]) for k, v in real.items())
+
+
+def test_train_two_track_run(tmp_path, monkeypatch):
+    """A two-track run logs its error against the exact update at log.two_track_check; log.preds=false stores no outputs."""
+    monkeypatch.setenv('OPTSPLIT_ROOT', str(tmp_path))
+    d = tmp_path / 'data' / 'shakespeare_char'
+    d.mkdir(parents=True)
+    for split in ('train', 'val'):
+        np.random.default_rng(0).integers(0, 11, 5000).astype(np.uint16).tofile(d / f'{split}.bin')
+    (d / 'meta.json').write_text(json.dumps({'vocab_size': 11, 'itos': list('abcdefghijk')}))
+    cfg = load_config(None, [*TINY, 'suite=t', 'name=tt', 'optimizer=muon', 'optim.muon.sv_power=-0.3',
+                             'optim.muon.two_track_steps=5', 'log.two_track_check=[2]', 'log.preds=false',
+                             'train.max_steps=4', 'train.batch_size=4', 'probe.n_seqs=4', 'probe.train_seqs=4',
+                             'measure.hessian=false', 'measure.delta_loss=false'])
+    save_config(cfg, tmp_path / 'cfg.yaml')
+    assert train.main([str(tmp_path / 'cfg.yaml')]) == 0
+    out = tmp_path / 'runs' / 't' / 'tt'
+    recs = [json.loads(line) for line in (out / 'metrics.jsonl').read_text().splitlines()]
+    assert [r['step'] for r in recs if r['kind'] == 'two_track'] == [2]
+    assert not list((out / 'preds').iterdir()) and (out / 'ckpt' / '0000004.pt').exists()
