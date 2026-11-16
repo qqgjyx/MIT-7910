@@ -69,8 +69,8 @@ def sv_power_two_track(G, p, steps):
 
 # LC (linear combination of Newton-Schulz iterates): for (p, steps), the quintic coefficients (a, b, c) of each step and
 # the weights w_0..w_steps of the iterates X_0..X_steps. Fitted on real momentum matrices (scripts/lc/final_coeffs.json,
-# sets p-0.3_lc5_eps3.0e-03 and p-0.3_lc6_eps1.0e-03; scripts/lc/check_snippet.py checked them on momentum matrices
-# that are not in the repository).
+# sets p-0.3_lc5_eps3.0e-03, p-0.3_lc6_eps1.0e-03, p-0.3_lc8_eps2.0e-04 and p-0.3_lc12_eps2.0e-06;
+# scripts/lc/check_snippet.py checked the first two on momentum matrices that are not in the repository).
 LC = {
     (-0.3, 5): (((3.5969, -7.7746, 4.8280), (3.5004, -7.1445, 4.1116), (3.4189, -6.6980, 3.8465),
                  (3.0402, -4.9130, 2.8709), (1.8013, -1.6495, 0.84815)),
@@ -78,29 +78,48 @@ LC = {
     (-0.3, 6): (((3.5791, -7.6099, 4.4535), (3.1263, -5.3070, 3.1688), (3.3447, -6.2419, 3.3154),
                  (3.4107, -6.5906, 3.5226), (3.0637, -5.0036, 2.8968), (2.7706, -3.7884, 2.0046)),
                 (-1.0761, -0.40821, -1.7443, -2.3533, -1.2355, -3.8680, 10.337)),
+    (-0.3, 8): (((3.2348, -5.7683, 3.3109), (3.2507, -5.7459, 2.9408), (3.2121, -5.5611, 2.843),
+                 (2.6895, -3.4919, 1.7981), (3.2704, -5.917, 3.3123), (3.0618, -4.8785, 2.4672),
+                 (2.9111, -4.2724, 2.1788), (2.7287, -3.5843, 1.7617)),
+                (-0.70074, -1.1829, -1.2574, -0.67631, -3.0728, -3.277, -3.8518, -0.16758, 13.782)),
+    (-0.3, 12): (((2.9697, -4.4367, 2.0673), (3.4655, -6.8891, 3.6988), (3.1281, -5.2348, 2.8713),
+                  (3.2114, -5.5393, 2.7639), (3.3399, -6.2026, 3.2349), (2.9449, -4.4931, 2.539),
+                  (3.1715, -5.3421, 2.624), (3.2469, -5.8017, 3.2428), (3.2104, -5.5553, 2.848),
+                  (2.7248, -3.7049, 1.9801), (2.1957, -3.0101, 1.8144), (3.1917, -5.5021, 2.9403)),
+                 (-0.64225, -1.5195, -0.66817, -2.3435, -4.0227, -2.3636, -6.2484, -7.3231, -11.162, -9.2759,
+                  13.077, -10.476, 54.037)),
 }
+LC_FLOAT32 = 8  # from this many steps on, float32 without TF32 (12 steps break in bfloat16, 8 are borderline)
 
 
 def sv_power_lc(G, p, steps):
     """Approximate U S^p V^T of G (up to a scale) with 3 * steps matrix products, Muon's cost for 5 steps: the weighted
     sum of the iterates of a Newton-Schulz iteration with its own coefficients, started at G / |G|_S8 (Schatten-8 norm,
-    from the first squared Gram matrix). Singular values above 3e-3 (5 steps) or 1e-3 (6 steps) of |G|_S8 come out as
-    S^p within about +-13% (+-11%); smaller ones get less. Iterates in bfloat16 as in Muon, the sum in float32."""
+    from the first squared Gram matrix). Singular values above 3e-3 (5 steps), 1e-3 (6), 2e-4 (8) or 2e-6 (12) of |G|_S8
+    come out as S^p within about +-13% (+-11%, +-5%, +-16%); smaller ones get less. Iterates in bfloat16 as in Muon for
+    5 and 6 steps, in float32 without TF32 for 8 and 12; the sum in float32."""
     coeffs, w = LC[p, steps]
-    X = G.bfloat16()
-    if G.size(-2) > G.size(-1):
-        X = X.mT
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    out = 0
-    for k, (a, b, c) in enumerate(coeffs):
-        A = X @ X.mT
-        A2 = A @ A
-        if k == 0:
-            s = A2.float().norm(dim=(-2, -1), keepdim=True) ** 0.25
-            X, A, A2 = (X / s).bfloat16(), (A / s ** 2).bfloat16(), (A2 / s ** 4).bfloat16()
-        out = out + w[k] * X.float()
-        X = a * X + (b * A + c * A2) @ X
-    out = out + w[-1] * X.float()
+    dt = torch.float32 if steps >= LC_FLOAT32 else torch.bfloat16
+    tf32 = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = False
+    try:
+        with torch.autocast(G.device.type, enabled=False):
+            X = G.to(dt)
+            if G.size(-2) > G.size(-1):
+                X = X.mT
+            X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+            out = 0
+            for k, (a, b, c) in enumerate(coeffs):
+                A = X @ X.mT
+                A2 = A @ A
+                if k == 0:
+                    s = A2.float().norm(dim=(-2, -1), keepdim=True) ** 0.25
+                    X, A, A2 = (X / s).to(dt), (A / s ** 2).to(dt), (A2 / s ** 4).to(dt)
+                out = out + w[k] * X.float()
+                X = a * X + (b * A + c * A2) @ X
+            out = out + w[-1] * X.float()
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = tf32
     return out.mT if G.size(-2) > G.size(-1) else out
 
 
@@ -208,7 +227,7 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
 def two_track_errors(opt, steps=(5, 8, 12)):
     """Two-track update against the exact one (float64 SVD) on the matrices the last `opt.step()` used (call it before
     zero_grad): per matrix and number of steps, the cosine with the exact update and the relative error
-    |Z - E|_F / |E|_F after rescaling both to the same norm (so error^2 = 2 - 2 cosine). `lc5`, `lc6`: the LC update
+    |Z - E|_F / |E|_F after rescaling both to the same norm (so error^2 = 2 - 2 cosine). `lc5` ... `lc12`: the LC update
     (p = -0.3 only); `svd32`: the float32 SVD of the exact method, for scale."""
     lc = [k for (q, k) in LC if q == opt.param_groups[0]["sv_power"]]
     out = {f'{kind}_{k}': [] for k in (*steps, *(f'lc{k}' for k in lc), 'svd32') for kind in ('err', 'cos')}

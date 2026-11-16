@@ -2,9 +2,10 @@
 
     python -m optsplit.analysis.two_track --out <dir>
 
-Per method (exact U S^p V^T at p = -0.3, two-track with 12, 8 and 5 steps, LC with 5 and 6 steps, plain Muon,
+Per method (exact U S^p V^T at p = -0.3, two-track with 12, 8 and 5 steps, LC with 5, 6, 8 and 12 steps, plain Muon,
 exact p = 0; exact and two-track 12 at p = -0.5 in the table only): the matrix products per step, the time per training step measured in a pilot (scripts/two_track_pilot.sh:
-the methods one after another on one GPU, two runs side by side; LC in a second pilot, beside Muon and two-track 12),
+the methods one after another on one GPU, two runs side by side; LC in a second and third pilot, beside Muon and
+two-track 12),
 the error of the update against the exact one on the run's own momentum (`two_track`
 records), the final validation loss per data order and the step at which the training loss reaches a level.
 Writes <dir>/two_track.txt, <dir>/two_track.json and <dir>/figures/two_track_val.png.
@@ -25,7 +26,7 @@ from optsplit.analysis.plots import panel_labels
 from optsplit.analysis.rank_metrics import at_loss
 
 # label, run (data order {d}), pilot run (data orders 0, 1), matrix products per step, error key, line style
-P1, P2 = 'ts10m_mse_tt_pilot', 'ts10m_mse_tt_pilot2'
+P1, P2, P3 = 'ts10m_mse_tt_pilot', 'ts10m_mse_tt_pilot2', 'ts10m_mse_tt_pilot3'
 METHODS = [
     ('exact SVD, $p=-0.3$', 'ts10m_mse_svp/muon_p-0.3_lr0.005_d{d}', f'{P1}/svd_p-0.3', 'SVD', 'svd32',
      dict(color='#e34948')),
@@ -34,6 +35,8 @@ METHODS = [
     ('two-track, $K=5$', 'ts10m_mse_tt/muon_p-0.3_k5_d{d}', f'{P1}/tt5', '19', '5', dict(color='#eda100')),
     ('LC5', 'ts10m_mse_tt/muon_p-0.3_lc5_d{d}', f'{P2}/lc5', '15', 'lc5', dict(color='#6250d6', ls='-.')),
     ('LC6', 'ts10m_mse_tt/muon_p-0.3_lc6_d{d}', f'{P2}/lc6', '18', 'lc6', dict(color='#1baf7a', ls='-.')),
+    ('LC8', 'ts10m_mse_tt/muon_p-0.3_lc8_d{d}', f'{P3}/lc8', '24', 'lc8', dict(color='#d55181', ls='-.')),
+    ('LC12', 'ts10m_mse_tt/muon_p-0.3_lc12_d{d}', f'{P3}/lc12', '36', 'lc12', dict(color='#7a4a1e', ls='-.')),
     ('Muon (Newton–Schulz)', 'ts10m_mse_main/muon_d{d}', f'{P1}/muon', '15', None, dict(color='k', ls='--')),
     ('exact SVD, $p=0$', 'ts10m_mse_svp/muon_p0_lr0.005_d{d}', f'{P1}/svd_p0', 'SVD', None, dict(color='0.55')),
     # p = -0.5, table only (style None): timed as p = -0.3, same products

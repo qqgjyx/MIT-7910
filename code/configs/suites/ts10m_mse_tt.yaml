@@ -29,3 +29,7 @@ runs:
      name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
   - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [5, 6], train.data_seed: [1, 2],
      name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
+# Added: LC with 8 and 12 steps (24 and 36 products, float32), which follow S^p down to 2e-4 and 2e-6 of the Schatten-8
+# norm: the reach of two-track K = 8 and K = 12 at fewer products.
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [12, 8], train.data_seed: [0, 1, 2],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}

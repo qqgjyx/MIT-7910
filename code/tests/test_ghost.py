@@ -154,7 +154,7 @@ def test_two_track_errors():
     opt.step()
     rec = two_track_errors(opt)
     n = len(opt.param_groups[0]['params'])
-    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'lc5', 'lc6', 'svd32')}
+    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'lc5', 'lc6', 'lc8', 'lc12', 'svd32')}
     assert all(len(v) == n for v in rec.values())
     assert all(e == pytest.approx(max(0, 2 - 2 * c) ** 0.5)
                for k in (5, 8, 12) for e, c in zip(rec[f'err_{k}'], rec[f'cos_{k}']))
@@ -163,29 +163,34 @@ def test_two_track_errors():
     json.dumps(rec)
 
 
-@pytest.mark.parametrize('steps,eps,band', [(5, 3e-3, 1.3), (6, 1e-3, 1.4)])
+@pytest.mark.parametrize('steps,eps,band,low', [(5, 3e-3, 1.3, -2.0), (6, 1e-3, 1.4, -2.0), (8, 2e-4, 1.3, -3.0),
+                                               (12, 2e-6, 1.5, -5.0)])
 @pytest.mark.parametrize('shape', [(128, 128), (64, 256), (256, 64)])
-def test_lc_power_law_above_the_cutoff(steps, eps, band, shape):
-    """LC (bfloat16 iterates): c S^p for S above eps of the Schatten-8 norm, much less far below; with no singular value
-    below eps the update is the exact one up to about 0.1."""
+def test_lc_power_law_above_the_cutoff(steps, eps, band, low, shape):
+    """LC: c S^p for S above eps of the Schatten-8 norm, much less far below; with no singular value below eps (spectrum
+    down to 10^low) the update is the exact one up to about 0.1."""
     G, U, S, V = wide_spectrum(shape, low=-6.0)
     Z = sv_power_lc(G, -0.3, steps).double()
     z = ((U.T @ Z) * V.T).sum(1)
     rel = S / S.pow(8).sum() ** 0.125
     ratio = z / rel.pow(-0.3)
     above = ratio[rel >= eps]
-    assert above.min() > 0 and above.max() / above.min() < band  # about +-13% (5 steps) and +-15% (6 steps)
-    assert ratio[rel < eps / 100].abs().max() < 0.05 * above.min()
-    grad = wide_spectrum(shape, low=-2.0)[0]  # all singular values above both cutoffs
+    assert above.min() > 0 and above.max() / above.min() < band  # about +-13%, +-15%, +-5%, +-16%
+    if steps < 12:  # 12 steps: float32 holds nothing under eps / 100
+        assert ratio[rel < eps / 100].abs().max() < 0.05 * above.min()
+    grad = wide_spectrum(shape, low=low)[0]
     exact = muon_update(grad, torch.zeros(shape), sv_power=-0.3)
     approx = muon_update(grad, torch.zeros(shape), sv_power=-0.3, lc_steps=steps)
     assert approx.dtype == torch.float32 and ((approx - exact).norm() / exact.norm()).item() < 0.15
+    if steps >= 8:
+        with torch.autocast('cpu', dtype=torch.bfloat16):  # float32 whatever the autocast
+            assert torch.equal(muon_update(grad, torch.zeros(shape), sv_power=-0.3, lc_steps=steps), approx)
 
 
 def test_lc_options_reach_the_optimizer():
     power = ['optim.muon.sv_power=-0.3']
     assert differ(run('muon', '[]', extra=power)[0], run('muon', '[]', extra=power + ['optim.muon.lc_steps=5'])[0])
-    with pytest.raises(AssertionError):  # coefficients for p = -0.3 with 5 or 6 steps only
+    with pytest.raises(AssertionError):  # coefficients for p = -0.3 with 5, 6, 8 or 12 steps only
         run('muon', '[]', extra=['optim.muon.sv_power=-0.3', 'optim.muon.lc_steps=4'])
 
 

@@ -5,6 +5,7 @@
 # ts10m_mse_tt; the p = -0.3 runs log the two-track error against the exact update (log.two_track_check).
 #   sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh [method ...]   (default: all; SUITE=<name> for a new suite)
 # Second pilot (ts10m_mse_tt_pilot2): SUITE=ts10m_mse_tt_pilot2 ... muon tt12 lc5 lc6, so LC is timed beside both.
+# Third (ts10m_mse_tt_pilot3): muon tt12 lc8 lc12.
 suite=${SUITE:-ts10m_mse_tt_pilot}
 common="suite=$suite train.loss=mse optimizer=muon optim.muon.lr=0.005 train.max_steps=400 schedule.decay=constant
     measure.hessian=false measure.delta_loss=false log.preds=false log.ckpt_steps.every=0 log.ckpt_steps.geometric=0"
@@ -24,7 +25,8 @@ pair() {  # <name> [option ...]
 
 declare -A opts=([muon]="" [tt5]="$check optim.muon.two_track_steps=5" [tt8]="$check optim.muon.two_track_steps=8"
     [tt12]="$check optim.muon.two_track_steps=12" [lc5]="$check optim.muon.lc_steps=5"
-    [lc6]="$check optim.muon.lc_steps=6" [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0")
+    [lc6]="$check optim.muon.lc_steps=6" [lc8]="$check optim.muon.lc_steps=8" [lc12]="$check optim.muon.lc_steps=12"
+    [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0")
 nvidia-smi --query-gpu=name --format=csv,noheader
 methods=("$@")
 [ $# -gt 0 ] || methods=(muon tt5 tt8 tt12 svd_p-0.3 svd_p0)
