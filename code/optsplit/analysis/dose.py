@@ -36,13 +36,16 @@ def row(run, level):
 
 
 def color(p):
-    """p < 0 red, p > 0 blue, darker further from 0 (down to -1, up to 0.75); p = 0 black."""
-    return 'k' if p == 0 else plt.get_cmap('Reds')(0.3 - 0.65 * p) if p < 0 else plt.get_cmap('Blues')(0.35 + 0.8 * p)
+    """p < 0 yellow-orange to dark purple, p > 0 blue, darker further from 0 (down to -1, up to 0.75); p = 0 black.
+    The negative values that were run are spread evenly over the colour map, so that neighbours can be told apart."""
+    if p < 0:
+        return plt.get_cmap('inferno')(np.interp(p, [-1, -0.75, -0.5, -0.3, -0.1], [0.2, 0.36, 0.52, 0.69, 0.86]))
+    return 'k' if p == 0 else plt.get_cmap('Blues')(0.35 + 0.8 * p)
 
 
 def curves(by_lr, refs, level, out, max_loss, offset, ticks):
     """One panel per learning rate: training loss on the probe against the step, a thin line at `level`."""
-    fig, axes = plt.subplots(1, len(by_lr), figsize=(7.1, 2.9), sharey=True, layout='constrained', squeeze=False)
+    fig, axes = plt.subplots(1, len(by_lr), figsize=(7.1, 2.6), sharey=True, layout='constrained', squeeze=False)
     handles = {}
     for ax, (lr, runs) in zip(axes[0], by_lr.items()):
         for run in sorted(runs, key=lambda r: r.cfg.optim.muon.sv_power):
