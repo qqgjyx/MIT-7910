@@ -1,0 +1,18 @@
+\documentclass[10pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[landscape,margin=0.5in]{geometry}
+\usepackage{graphicx}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+\textbf{Cross-entropy} (\texttt{ts10m\_main}, $d=0$, measured every 500 steps): AdamW's preconditioned
+$\lambda_{max}$ stays near $2\cdot10^4$ and falls below its rising threshold after step $\sim$5000.\\[2pt]
+\includegraphics[width=\linewidth]{ts10m_ce/sharpness.pdf}
+
+\vspace{1.2em}
+\textbf{MSE} (\texttt{ts10m\_mse\_eos}, $d=0$, measured every 50 steps): AdamW's preconditioned $\lambda_{max}$
+rises with its threshold, 1.15--1.18 times it from step 5000.\\[2pt]
+\includegraphics[width=\linewidth]{ts10m_mse/sharpness.pdf}
+\end{document}
