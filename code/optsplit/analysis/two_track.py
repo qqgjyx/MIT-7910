@@ -3,7 +3,7 @@
     python -m optsplit.analysis.two_track --out <dir>
 
 Per method (exact U S^p V^T at p = -0.3, two-track with 12, 8 and 5 steps, LC with 5 and 6 steps, plain Muon,
-exact p = 0): the matrix products per step, the time per training step measured in a pilot (scripts/two_track_pilot.sh:
+exact p = 0; exact and two-track 12 at p = -0.5 in the table only): the matrix products per step, the time per training step measured in a pilot (scripts/two_track_pilot.sh:
 the methods one after another on one GPU, two runs side by side; LC in a second pilot, beside Muon and two-track 12),
 the error of the update against the exact one on the run's own momentum (`two_track`
 records), the final validation loss per data order and the step at which the training loss reaches a level.
@@ -36,6 +36,9 @@ METHODS = [
     ('LC6', 'ts10m_mse_tt/muon_p-0.3_lc6_d{d}', f'{P2}/lc6', '18', 'lc6', dict(color='#1baf7a', ls='-.')),
     ('Muon (Newton–Schulz)', 'ts10m_mse_main/muon_d{d}', f'{P1}/muon', '15', None, dict(color='k', ls='--')),
     ('exact SVD, $p=0$', 'ts10m_mse_svp/muon_p0_lr0.005_d{d}', f'{P1}/svd_p0', 'SVD', None, dict(color='0.55')),
+    # p = -0.5, table only (style None): timed as p = -0.3, same products
+    ('exact SVD, $p=-0.5$', 'ts10m_mse_svp/muon_p-0.5_lr0.005_d{d}', f'{P1}/svd_p-0.3', 'SVD', None, None),
+    ('two-track p=-0.5, $K=12$', 'ts10m_mse_tt/muon_p-0.5_k12_d{d}', f'{P1}/tt12', '47', '12', None),
 ]
 ORDERS = (0, 1, 2)
 
@@ -110,7 +113,8 @@ def main():
     for label, pattern, pilot, products, key, style in METHODS:
         r, runs = row(label, pattern, pilot, products, key, args.level)
         rows.append(r)
-        drawn.append((label, runs, style))
+        if style:
+            drawn.append((label, runs, style))
     mean = lambda v: f'{np.mean(list(v.values())):.4f}' if len(v) == len(ORDERS) else '-'
     cell = lambda v, d, fmt: format(v[d], fmt) if d in v else '-'
     lines = [f'{"method":<22} {"products":>8} {"ms/step":>8} {"err med":>8} {"err max":>8} '
