@@ -350,15 +350,15 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         o.rotate()
         return o.loss(a), o.loss(b)
 
-    def string(X, k):
-        """At most k steps of a stochastic string method: on a fresh group of sequences, each point takes an Adam step
-        on (L_i - c_i)^2 / 2 (descent to the level set, like training; from below it climbs), then moves by beta
-        times the discrete Laplacian of the path minus its component along the point's loss gradient (curve
-        shortening within the level set; it also evens out the spacing). Both step sizes warm up over the first 10%
-        of the steps and then decay linearly to 0, over the last 30% of the k steps or, earlier, over the next
-        quarter of the steps taken so far, once the max |L - c| at the points on the check set (the better of two
-        checks 50 steps apart, against occasional spikes) is below 2 tol or has improved by less than 2% over 200
-        steps. Adam's betas are training's (0.9, 0.95)."""
+    def string(X, k, scale=1.0):
+        """At most k steps of a stochastic string method, with Adam step size scale * lr: on a fresh group of
+        sequences, each point takes an Adam step on (L_i - c_i)^2 / 2 (descent to the level set, like training; from
+        below it climbs), then moves by beta times the discrete Laplacian of the path minus its component along the
+        point's loss gradient (curve shortening within the level set; it also evens out the spacing). Both step sizes
+        warm up over the first 10% of the steps and then decay linearly to 0, over the last 30% of the k steps or,
+        earlier, over as many steps as taken so far (a long anneal, as in training), once the max |L - c| at the
+        points on the check set (the better of two checks 50 steps apart, against occasional spikes) is below 2 tol
+        or has improved by less than 2% over 200 steps. Adam's betas are training's (0.9, 0.95)."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
         warm, stop, decay, chk = 0.1 * k, int(0.7 * k), k - int(0.7 * k), []
         t = 0
@@ -374,7 +374,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             lap = P[:-2] + P[2:] - 2 * X
             u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
             lap -= (lap * u).sum(1, keepdim=True) * u
-            X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.95 ** t)).sqrt() + 1e-8) + f * beta * lap
+            X = X - f * scale * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.95 ** t)).sqrt() + 1e-8) + f * beta * lap
             del P, lap, u, G
             if t <= stop and t % 50 == 0 and t > warm:  # early stop: at the level, or flat over the last 200 steps
                 chk.append(check_dev(X))
@@ -383,7 +383,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 d1 = min(chk[-2:])
                 flat = len(chk) >= 6 and min(chk[-6:-4]) - d1 < max(0.003, 0.02 * min(chk[-6:-4]))
                 if flat or d1 <= 2 * tol:
-                    stop, decay = t, max(20, t // 4)
+                    stop, decay = t, t
                     log(f"string: {'flat' if flat else 'at the level'}, decaying over {decay} steps")
             if t % 50 == 0 or t == stop + decay:
                 hist.append(dict(phase='string', n=len(X), t=t, max_r=float(np.abs(L - c).max()),
@@ -401,7 +401,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         phase leaves in the path: on a fresh group of sequences of obj_shorten (a larger batch than the string
         phase's), each point moves by beta times the discrete Laplacian of the path minus its component along its
         loss gradient, plus a Newton step back to its target loss. beta adapts like a trust region: if the max
-        |L - c| after a step exceeds lim = max(2 tol, 1.5 x its value at the start), the step is undone and beta
+        |L - c| after a step exceeds lim = max(tol, 1.5 x its value at the start), the step is undone and beta
         halved; after a step that keeps it below lim / 2, beta grows by 20% (up to shorten_beta; it starts at 1/16 of
         that). Stops once the length has fallen by less than 1% of its excess over the last 100 steps."""
         bs, ratios, prev, lim, undone = shorten_beta / 16, [float(lengths(X, a, b).sum() / D)], None, None, 0
@@ -411,7 +411,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             c = targets(*ends(obj_shorten), len(X))
             L, G = evaluate(obj_shorten, X)
             dev = float(np.abs(L - c).max())
-            lim = lim or max(2 * tol, 1.5 * dev)
+            lim = lim or max(tol, 1.5 * dev)
             if prev is not None and dev > lim:  # the last step left the level set: undo it, smaller steps
                 X, bs, undone = prev, bs / 2, undone + 1
                 L, G = evaluate(obj_shorten, X)
@@ -443,7 +443,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     def run_stage(X, w, k, ramp=0):
         """k iterations at weight w. With ramp > 0 the targets start at the current losses and reach c_i linearly
         over the first `ramp` iterations (a continuation, so that each step's linearisation stays accurate)."""
-        n, dev0 = len(X), None
+        n, dev0, stuck = len(X), None, 0
         for j in range(k):
             c_end = targets(*ends(), n)
             if rotating or j == 0:
@@ -474,13 +474,16 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                              ratio=float(seg.sum() / D), time=time.time() - t0))
             log(f"n={n} w={w:g} s={s:.2f} lam={lam[0]:.3g} E={En:.4g} max|L-c|={hist[-1]['max_r']:.4f} "
                 f"ratio={hist[-1]['ratio']:.5f} ({hist[-1]['time']:.0f}s)")
-            if s == 1 and E - En < 1e-4 * E:
-                break  # converged at this w
+            stuck = stuck + 1 if s == 1 and lam[0] >= 1e6 else 0
+            if s == 1 and (E - En < 1e-4 * (E - 1) or stuck >= 3):
+                break  # converged at this w (E_w >= 1), or stuck (for 3 iterations only tiny steps lowered E_w)
         return X
 
-    stages, first = [], dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters)
+    stages, first = [], dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, version=2)
     st = torch.load(stash, map_location=a.device) if stash is not None and Path(stash).exists() else None
-    if st is not None and st['settings'] == first:  # resume after the string and LM phases
+    # resume after the string and LM phases; from a version-1 stash (a shorter anneal) only if it reached c
+    v1 = {k: v for k, v in first.items() if k != 'version'}
+    if st is not None and (st['settings'] == first or st['settings'] == v1 and st['stages'][-1]['max_r'] <= 2 * tol):
         X, stages = st['X'], st['stages']
         hist.extend(st['hist'])
         log(f'resumed after the string and LM phases from {stash}')
@@ -525,7 +528,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 new.append((P[k] + P[k + 1]) / 2)
         X = torch.stack(new)
         if round_steps:
-            X = string(X, round_steps)
+            X = string(X, round_steps, scale=0.25)  # a gentle continuation from the path so far
         X = run_stage(X, ws[-1], round_iters, ramp=round_iters // 2)
         if shorten_steps:
             X = shorten(X, shorten_steps)
