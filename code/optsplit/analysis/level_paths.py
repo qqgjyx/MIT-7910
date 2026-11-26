@@ -906,7 +906,8 @@ def cmd_work(args):
         if os.environ.get('YIELD') == '1':
             q = subprocess.run(['squeue', '-u', os.environ.get('USER', ''), '-h', '-t', 'PD', '-p',
                                 os.environ.get('SLURM_JOB_PARTITION', ''), '-o', '%j|%r'], capture_output=True, text=True)
-            others = [l for l in q.stdout.splitlines() if not l.startswith(('lp_', 'level_paths')) and 'Held' not in l]
+            others = [l for l in q.stdout.splitlines() if not l.startswith(('lp_', 'level_paths'))
+                      and not any(r in l for r in ('Held', 'Dependency', 'BeginTime'))]
             if others:
                 print(f'yielding the GPU: {others[0]} waits', flush=True)
                 return 0
