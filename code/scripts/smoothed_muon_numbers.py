@@ -75,3 +75,23 @@ for k in ('lambda_max', 'hess_trace', 'update_align', 'stable_rank', 'mlp_active
                     vals.setdefault(j['step'], []).append(j[k])
         steps = [s for s in sorted(vals) if len(vals[s]) == 3 and (s % 500 == 0 or s in (25, 50, 100, 150, 200, 250, 300, 400, 600, 800, 1250)) and s > 0]
         print(f'  {o}: ' + ' '.join(f'{s}:{np.mean(vals[s]):.4g}±{(max(vals[s]) - min(vals[s])) / 2:.2g}' for s in steps))
+
+
+def fmt(m, h):
+    d = max(0, 2 - int(np.floor(np.log10(abs(m))))) if m else 0
+    return f'${m:.{d}f} \\pm {h:.{d}f}$'
+
+
+print('== curvature table rows (LaTeX): step & lambda_max x3 & trace x3')
+cur = {}
+for k in ('lambda_max', 'hess_trace'):
+    for o, suite in (('adamw', 'ts10m_traj'), ('muon', 'ts10m_traj'), ('smuon', SM)):
+        for d in range(3):
+            for f in glob.glob(f'{ROOT}{suite}/{o}_d{d}/traj_metrics/*.json'):
+                j = json.load(open(f))
+                if k in j:
+                    cur.setdefault((k, o, j['step']), []).append(j[k])
+for s in (250, 500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000):
+    cells = [cur.get((k, o, s), []) for k in ('lambda_max', 'hess_trace') for o in ('adamw', 'muon', 'smuon')]
+    if all(len(c) == 3 for c in cells):
+        print(f'{s} & ' + ' & '.join(fmt(np.mean(c), (max(c) - min(c)) / 2) for c in cells) + ' \\\\')

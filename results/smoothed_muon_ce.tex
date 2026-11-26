@@ -27,7 +27,7 @@
 \makeatother
 
 \title{Smoothed Muon Under the Cross-Entropy Loss\\[1pt]
-\normalfont The CE checkpoint with a third optimizer, MIT 6.7910, Fall 2026}
+\normalfont The CE report with a third optimizer, MIT 6.7910, Fall 2026}
 \author{Juntang Wang and V\'ictor Conchello}
 \date{November 2026}
 
@@ -35,9 +35,23 @@
 \maketitle
 \vspace{-0.8em}
 
-\paragraph{Summary.} TODO
+\paragraph{Summary.} Under the cross-entropy (CE) loss, as in our earlier study under the mean squared error (MSE,
+\texttt{results/smoothed\_muon.pdf}), making Muon's consecutive updates as alike as AdamW's moves almost none of Muon's
+properties towards AdamW's. \emph{Smoothed Muon} is Muon with each step a running average of Muon's orthogonalized
+updates. We set the averaging so that the cosine between consecutive updates is AdamW's (0.88; Muon 0.74). We then add
+smoothed Muon to our comparison of AdamW and Muon under CE (the \emph{CE report}, \texttt{checkpoint/checkpoint.pdf}),
+on three of its five data orders (mini-batch sequences). (1)~Speed, final loss and path stay close to Muon's. The final
+validation loss is 1.316 (Muon 1.309, AdamW 1.343). On the same mini-batches, smoothed Muon's predictions differ less
+from Muon's than AdamW's predictions do. (2)~Weight spectra and MLP sparsity are Muon's. At equal training loss, no
+prediction metric differs between any two optimizers by more than its spread over data orders. (3)~Besides the update
+itself (9\% shorter than Muon's, and less aligned with the negative gradient), only the curvature changes, and by
+little. From step 1500 on, the Hessian trace is 5 to 9\% below Muon's. The top Hessian eigenvalue is above Muon's early
+in training and 8 to 13\% below it from step 5000 on. Two results differ from MSE: smoothed Muon ends slightly behind
+Muon (under MSE they tie), and its Hessian trace ends only 8\% below Muon's (under MSE, 40\% below). Here smoothed Muon
+uses Muon's learning rate. Queued: a learning-rate sweep, data orders 3--4, and \emph{swaps} (runs that switch
+optimizer mid-training).
 
-\paragraph{Setup.} \emph{Model and loss.} Everything is as in the CE checkpoint (\texttt{checkpoint/checkpoint.pdf}): a
+\paragraph{Setup.} \emph{Model and loss.} Everything is as in the CE report (\texttt{checkpoint/checkpoint.pdf}): a
 14M-parameter nanoGPT \citep{karpathy2022nanogpt} on TinyStories \citep{eldan2023tinystories}, 10{,}000 steps of 128
 sequences of 256 tokens, with the cross-entropy loss (settings: \cref{app:hparams}).
 
@@ -60,20 +74,102 @@ following steps: a share $a$ of it is applied at step $t$, $a(1-a)$ at step $t+1
 
 \emph{Choosing $a$ and $\eta$.} We measure how alike consecutive updates are by their cosine
 $\cos(\Delta\theta_t,\Delta\theta_{t+1})$, where $\Delta\theta_t=\theta_{t+1}-\theta_t$ is the step of all parameters.
-We compare optimizers at training loss 1.81, as the CE checkpoint does: AdamW reaches it near step 1490 and Muon near
-step 840. There the cosine is 0.88 for AdamW and 0.74 for Muon. Short runs of smoothed Muon (to step 2000, at Muon's
+We compare optimizers at training loss 1.81, as the CE report does: AdamW reaches it near step 1450 and Muon near
+step 860. There the cosine is 0.88 for AdamW and 0.74 for Muon. Short runs of smoothed Muon (to step 2000, at Muon's
 $\eta=0.01$) show that a smaller $a$ raises it (\cref{tab:calib}). We take $a=0.65$: its cosine is the closest to
-AdamW's at that loss (0.883 against 0.881). Smoothed Muon keeps Muon's learning rate, $\eta=0.01$. It then runs from
+AdamW's at that loss (0.883 against 0.881, on data order 0). Smoothed Muon keeps Muon's learning rate, $\eta=0.01$. It then runs from
 the same initialization and on the first three of the five \emph{data orders} (mini-batch sequences) of AdamW and
 Muon.
 
 \begin{table}[H]
 \centering\small
 \caption{Choosing $a$: cosine between consecutive updates at training loss 1.81 and validation loss at step 2000,
-on data order 0 with $\eta=0.01$. AdamW: its own run. Bold: the chosen $a$.}
+on data order 0 with $\eta=0.01$. AdamW: its full run on data order 0, at its own $\eta=2\cdot10^{-3}$. Second row: the
+cosine over the 36 weight matrices of the transformer blocks only. Bold: the chosen $a$.}
 \label{tab:calib}
 \input{ts10m_smooth/calib_main}
 \end{table}
+
+\paragraph{Step 1: how the trajectories differ (\cref{fig:div}).} \emph{Comparing runs.} The distance between two runs
+is the mean Jensen--Shannon divergence (JS, in bits) of their next-token predictions on held-out text. We compare runs
+at equal step and at equal training loss; at equal loss, speed does not count as a difference. The \emph{floor} of an
+optimizer is the mean distance between its runs on two different data orders, over all pairs (10 pairs of orders 0--4
+for AdamW and Muon, 3 pairs of orders 0--2 for smoothed Muon). Because it compares different mini-batches, it can
+exceed the distance between two optimizers on the same data order.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{ts10m_smooth/divergence_umap.pdf}
+\caption{AdamW, Muon and smoothed Muon. (a) Next-token predictions of the saved models from step 250 on, mapped to 2-D
+by densMAP (a variant of UMAP; shows neighbours, not distances); markers: step; labels: training loss and data
+order. (b) JS between runs at equal step.
+Blue: AdamW against Muon. Thick green: smoothed Muon against AdamW (solid) and against Muon (dashed), on the same data
+order. Grey and thin green: floors (one optimizer, two data orders). Dotted line: step 250, where (a) starts. (c) The
+same at equal training loss. (d) Validation loss; bands: range over data orders.}
+\label{fig:div}
+\end{figure}
+
+\emph{Speed and endpoints: close to Muon's.} Smoothed Muon reaches AdamW's final validation loss at step 7750, Muon
+at step 7500 and AdamW at step 10{,}000 (d). On data orders 0--2, the final validation loss is 1.316 for smoothed
+Muon, 1.309 for Muon and 1.343 for AdamW. Smoothed Muon is behind Muon on each of these orders, by 0.005 to 0.010:
+about a fifth of the way from Muon to AdamW.
+
+\emph{Path: Muon's.} On the same data order, smoothed Muon stays closer to Muon than AdamW does, throughout training
+(b): 0.056 against 0.071 at step 5000, and 0.049 against 0.058 at the end. Its distance to AdamW
+(0.072 at step 5000, 0.057 at the end) equals Muon's (0.071, 0.058). The floors are 0.081 to 0.090 at step 5000 and
+0.058 to 0.060 at the end. At equal training loss (c) the picture is the same: at loss 2.0, smoothed Muon and Muon are
+0.064 apart, while AdamW is 0.134 from Muon and 0.137 from smoothed Muon; the floors are 0.128 to 0.131. Below loss 2
+the dashed curves in (c) spike. The saved models are 250 steps apart and the training loss is noisy, so for two equally
+fast runs the model of closest loss is sometimes one earlier or later; the extra 250 steps of training raise the
+distance. In (a), each smoothed-Muon run lies next to the Muon run of its data order.
+
+\paragraph{Step 2: what differs along the way.} We measure the 30 properties of the CE report at 34 points of
+training, in five groups (\cref{app:metrics} defines them; \cref{tab:app-am,tab:app-sgd} give all values at training
+loss 1.81, and \cref{tab:app-curv} the curvature over training). \Cref{fig:rank} shows two ratios at training loss
+1.81, for the nine metrics of the CE report's ranking figure: AdamW/Muon and
+smoothed Muon/Muon, on data orders 0--2. A green point at 1 means ``as Muon''; a green point on the black one means
+``as AdamW''.
+
+\begin{figure}[H]
+\centering
+\includegraphics{ts10m_smooth/ranking.pdf}
+\caption{Ratios to Muon at training loss 1.81, for selected metrics; three data orders each; bars: range across data
+orders. At this loss smoothed Muon's early high curvature is still falling; from step 5000 on its $\lambda_{\max}$ is
+below Muon's (text, \cref{tab:app-curv}).}
+\label{fig:rank}
+\end{figure}
+
+Smoothed Muon reaches training loss 1.81 near step 900. Values below are means over data orders 0--2 at
+that loss, with Muon's and AdamW's in parentheses, unless a step is given.
+
+\begin{itemize}
+\item \emph{Weights $W$: Muon's.} The stable rank is 85.9 (Muon 86.2, AdamW 33.0), the effective rank 324 (325, 272),
+the spectral norm 3.03 (2.95, 5.39) and $\sigma_1/\sigma_{\rm median}$ 2.68 (2.68, 8.01). The distance from the initialization
+is 2.2 times the initial norm (2.2, 2.2). At the end of training the stable rank is still Muon's: 75 (75, 41).
+\item \emph{One-step updates $\Delta\theta$.} The cosine between consecutive steps is AdamW's, as chosen: 0.883
+(0.738, 0.883). It stays close to AdamW's: at step 9000 it is 0.888 (0.758, 0.898). The stable rank of $\Delta W$ is
+Muon's, 219 (220, 17). The step is 9\% shorter than under the other two: $\|\Delta\theta\|/\|\theta\|$ is
+$5.96\cdot10^{-3}$ ($6.53\cdot10^{-3}$, $6.56\cdot10^{-3}$). It also points less along the negative gradient: their
+cosine is 0.157 (0.217, 0.244).
+\item \emph{Loss curvature (Hessian $H$; \cref{tab:app-curv}).} Every run starts with a phase of high curvature, which
+lasts longer under smoothed Muon. Its top Hessian eigenvalue $\lambda_{\max}$ falls below 20 by step 500, Muon's by
+step 300. So at loss 1.81 its $\lambda_{\max}$ is above Muon's, away from AdamW's: 16.6 (14.3, 6.2). From step 5000
+on, it is 8 to 13\% below Muon's, and the ranges over data orders separate: at the end it is 20.0 (22.1, 8.7). The
+trace $\operatorname{tr}H$ is below Muon's from step 500 on, with separate ranges: by 5\% at loss 1.81, where it is
+2640 (2770, 1400), and by 5 to 9\% from step 1500 on. AdamW's trace is far below Muon's in mid-training (1070 against
+1420 at step 4000), then climbs back towards Muon's. So from step 8000 on, the ranges of smoothed Muon and AdamW
+overlap: at the end the trace is 1825 (1991, 1880).
+\item \emph{Internal activations: Muon's.} 21\% of the MLP units are active, that is, have a positive input (22\%,
+12\%). The attention entropy is 2.78 nats (2.79, 2.51).
+\item \emph{Predictions: no differences.} For every prediction metric, the ranges of the ratios smoothed Muon/Muon
+and AdamW/Muon contain 1 (\cref{tab:app-am}).
+\end{itemize}
+
+\paragraph{Next steps.} (i)~Under both losses, giving Muon AdamW's cosine by averaging leaves Muon's speed, path,
+weight spectra and MLP sparsity in place. So the cosine between consecutive updates does not explain these differences
+between AdamW and Muon; the orthogonalization itself is one candidate. (ii)~Queued: a learning-rate sweep of smoothed Muon (five rates from 0.0025
+to 0.04, data order 0), then data orders 3--4, then 36 swaps between smoothed Muon and each of AdamW and Muon, at nine steps from 50 to 4000. If the
+sweep picks a rate other than 0.01, the runs here will be repeated at that rate.
 
 \clearpage
 \printbibliography
