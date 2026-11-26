@@ -27,8 +27,9 @@
 % ANSWER
 
 \textbf{Setup.} The models are the 14M-parameter GPTs on TinyStories of Fig.~1 of the checkpoint report: AdamW and
-Muon from one initialization, data orders 0 and 1. At each loss level, every run contributes the checkpoint whose
-training loss is closest to the level. Pairs: AdamW vs Muon on the same data order (blue) and, as the floor, two data
+Muon from one initialization, data orders 0 and 1. The six loss levels are the losses of AdamW (order 0) at steps
+397, 1440, 3300, 5000, 7500 and 10000, i.e.\ 4\% to 100\% of its training. At each level, every run contributes the
+checkpoint whose training loss is closest to the level. Pairs: AdamW vs Muon on the same data order (blue) and, as the floor, two data
 orders of one optimizer (grey). Losses are means over 512 training sequences; a loss difference between two models
 has noise 0.002 nats.
 
