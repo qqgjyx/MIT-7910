@@ -128,34 +128,41 @@ def curves_zoom(runs, refs, level, out, max_loss, offset, ticks, zoom):
         print(f'wrote {path}')
 
 
-def smooth_loss(run, k=5):
-    """Training loss at the prediction steps; from step 1000 on (one evaluation every 250 steps) the mean over k
-    consecutive evaluations, then a running minimum."""
+def loss_fit(run, h=0.15, first=10):
+    """Smooth training loss: a function of log step giving log loss, by local linear regression on the evaluations
+    from step `first` on, with Gaussian weights of width `h` in log step (h = 0.15: about +-15% of the step)."""
     steps, loss = run.series('eval', 'train_loss')
-    keep = np.isin(steps, run.pred_steps)
-    steps, loss = steps[keep], loss[keep].copy()
-    late = steps >= 1000
-    if late.sum() >= k:
-        x = np.pad(loss[late], k // 2, mode='edge')
-        loss[late] = np.convolve(x, np.ones(k) / k, mode='valid')
-    return steps, np.minimum.accumulate(loss)
+    keep = steps >= first
+    x, y = np.log(steps[keep]), np.log(loss[keep])
+
+    def f(x0):
+        x0 = np.atleast_1d(x0)
+        w = np.exp(-0.5 * ((x[None, :] - x0[:, None]) / h) ** 2)
+        sw, swx, swy = w.sum(1), w @ x, w @ y
+        swxx, swxy = w @ x ** 2, w @ (x * y)
+        slope = (sw * swxy - swx * swy) / (sw * swxx - swx ** 2)
+        return (swy - slope * swx) / sw + slope * x0
+    return f
 
 
-def equal_loss(a, b):
-    """JS between each prediction step of `a` and `b` at the step t where b's smoothed training loss reaches a's,
-    interpolated linearly in t between b's two prediction steps around t. Runs as close as these move between two
-    prediction steps (250 apart) about as much as they differ, so taking the nearest step instead makes the curve
-    jump whenever the matched step crosses a midpoint."""
-    sa, la = smooth_loss(a)
-    sb, lb = smooth_loss(b)
+def equal_loss(a, b, first=10):
+    """JS between each prediction step s of `a` and `b` at the step t where b's fitted loss equals a's (loss_fit),
+    interpolated linearly in t between b's two prediction steps around t. The probe loss is too noisy to match on
+    directly: runs this close move between two prediction steps (250 apart) about as much as they differ."""
+    fa, fb = loss_fit(a, first=first), loss_fit(b, first=first)
+    sa, sb = np.asarray(a.pred_steps), np.asarray(b.pred_steps)
+    sa = sa[sa >= first]
+    grid = np.geomspace(first, sb[-1], 4000)
+    lb = np.minimum.accumulate(fb(np.log(grid)))  # decreasing
+    la = fa(np.log(sa))
     ok = (la <= lb[0]) & (la >= lb[-1])
-    lev, first = np.unique(lb, return_index=True)  # increasing loss, the first step at each level
-    t = np.interp(la[ok], lev, sb[first])
+    lev, idx = np.unique(lb, return_index=True)
+    t = np.interp(la[ok], lev, grid[idx])
     hi = np.clip(np.searchsorted(sb, t), 1, len(sb) - 1)
-    w = (t - sb[hi - 1]) / (sb[hi] - sb[hi - 1])
+    w = np.clip((t - sb[hi - 1]) / (sb[hi] - sb[hi - 1]), 0, 1)
     js = [(1 - wi) * distance(a, s, b, sb[i - 1])[0] + wi * distance(a, s, b, sb[i])[0]
           for s, i, wi in zip(sa[ok], hi, w)]
-    return dict(loss=la[ok], js=np.array(js))
+    return dict(loss=np.exp(la[ok]), js=np.array(js))
 
 
 def paths(runs, muon, adamw, floors, out, max_loss, offset, ticks):
