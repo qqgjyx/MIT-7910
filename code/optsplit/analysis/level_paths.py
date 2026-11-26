@@ -823,7 +823,7 @@ STYLE = {'adamw-muon_d0': dict(color='C0', label='AdamW vs Muon, same data order
 
 def collect(out_dirs):
     """{pair: [record per level]} from the profiles and bands of out_dirs; the level's x is the mean training loss of
-    the endpoints on the probe (the training loss of Fig. 1)."""
+    the endpoints on the probe (the training loss of Fig. 1); 'step' is the AdamW d0 step that defines it."""
     recs = {}
     for f in sorted(f for d in out_dirs for f in (Path(d) / 'profile').glob('*.json')):
         out = f.parent.parent
@@ -836,7 +836,11 @@ def collect(out_dirs):
         g = sorted((out / 'walk').glob(f'{f.stem}_mu*.json'))
         r['walk'] = json.loads(g[0].read_text()) if g else None
         recs.setdefault(pair, []).append(r)
+    step = {r['level']: int(r['prof']['a'].rsplit(':', 1)[1]) for rs in recs.values() for r in rs
+            if '/adamw_d0:' in r['prof']['a']}
     for pair in recs:
+        for r in recs[pair]:
+            r['step'] = step.get(r['level'])
         recs[pair].sort(key=lambda r: -r['level'])
     return recs
 
@@ -849,7 +853,8 @@ def cmd_plot(args):
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.labelsize': 7, 'legend.fontsize': 6,
                          'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
-    fig, axes = plt.subplots(1, 4, figsize=(7.1, 1.75))
+    fig, axes = plt.subplots(2, 2, figsize=(7.1, 3.9))
+    axes = axes.ravel()
     for pair, rs in recs.items():
         st = STYLE[pair]
         x = np.array([r['probe'] for r in rs])
@@ -870,15 +875,23 @@ def cmd_plot(args):
     axes[1].set(title='straight line: rise and dip (nats)')
     axes[2].set(yscale='log', title='prediction space: length / distance')
     axes[3].set(title='distance / distance from init')
+    at = {}
+    for rs in recs.values():
+        for r in rs:
+            if r['step']:
+                at.setdefault(r['step'], []).append(r['probe'])
     for ax in axes:
         loss_axis(ax)
         ax.set_xlabel('training loss')
+        top = ax.secondary_xaxis('top')  # the levels, as a fraction of AdamW training (10k steps)
+        top.set_xticks([np.mean(v) for v in at.values()], [f'{s // 100}%' for s in at])
+        top.tick_params(labelsize=5, length=2, pad=1)
     from optsplit.analysis.plots import panel_labels
     panel_labels(axes)
     h = [plt.Line2D([], [], color=STYLE[k]['color'], lw=0.9) for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')]
     fig.legend(h, [STYLE[k]['label'] for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')], loc='lower center',
-               ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.06))
-    fig.tight_layout(rect=(0, 0.06, 1, 1))
+               ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.03))
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.out, bbox_inches='tight')
     print(f'wrote {args.out}')
@@ -890,20 +903,22 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 def cmd_table(args):
     """LaTeX rows: per level (the given ones, by index in the levels sorted by decreasing loss, or all) and pair. The
-    first column is the level's training loss (mean over the pairs' endpoints on the probe)."""
+    first column is the level's training loss (mean over the pairs' endpoints on the probe) and AdamW step."""
     recs = collect(args.out_dirs)
     f = lambda v, d=3: '--' if v is None else f'{v:.{d}f}'
     levels = sorted({r['level'] for rs in recs.values() for r in rs}, reverse=True)
     keep = [levels[i] for i in args.levels] if args.levels else levels
     for level in keep:
         x = np.mean([r['probe'] for rs in recs.values() for r in rs if r['level'] == level])
+        s = next((r['step'] for rs in recs.values() for r in rs if r['level'] == level and r['step']), None)
         for pair in NAMES:
             for r in recs.get(pair, []):
                 if r['level'] != level:
                     continue
                 n10, n20, p = r['n10'], r['n20'], r['prof']
                 print(' & '.join([
-                    f'{x:.2f}', NAMES[pair], f(abs(p['c_a'] - p['c_b'])), f(p['rise'], 2), f(abs(p['dip']), 2),
+                    f'{x:.2f}', '--' if s is None else f'{s} ({s // 100}\\%)', NAMES[pair],
+                    f(abs(p['c_a'] - p['c_b'])), f(p['rise'], 2), f(abs(p['dip']), 2),
                     f(p['rel_distance']['all'], 2), f(n10 and n10['fixed']['ratio'], 4),
                     f(n20 and n20['fixed']['ratio'], 4),
                     f(n10 and n10['valid']['ratio'], 4) + (f" ({n10['valid']['n']})" if n10 else ''),
