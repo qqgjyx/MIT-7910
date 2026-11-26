@@ -1,0 +1,48 @@
+\documentclass[10pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=0.7in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage[font=small,labelfont=bf,skip=3pt]{caption}
+\captionsetup[figure]{font=footnotesize}
+\captionsetup[table]{font=footnotesize}
+\setlength{\parskip}{2pt}
+\setlength{\parindent}{0pt}
+\setlength{\intextsep}{6pt}
+\makeatletter
+\renewcommand\maketitle{\begin{center}{\large\bfseries\@title\par}\end{center}}
+\makeatother
+
+\title{How far apart are AdamW and Muon at equal loss? Constant-loss paths in weight space}
+
+\begin{document}
+\maketitle
+\vspace{-0.8em}
+
+% ANSWER
+
+\textbf{Setup.} The models are the 14M-parameter GPTs on TinyStories of Fig.~1 of the checkpoint report: AdamW and
+Muon from one initialization, data orders 0 and 1. At each loss level, every run contributes the checkpoint whose
+training loss is closest to the level. Pairs: AdamW vs Muon on the same data order (blue) and, as the floor, two data
+orders of one optimizer (grey). Losses are means over 512 training sequences; a loss difference between two models
+has noise 0.002 nats.
+
+\textbf{Measures.} \emph{Straight line:} the loss along $(1-t)\theta_A + t\theta_B$ minus the linear interpolation of
+the endpoint losses; the rise is its maximum and the dip its minimum. \emph{Constant-loss path:} $N$ points between
+$\theta_A$ and $\theta_B$, started on the line, are moved until every point has the target loss (interpolated
+between the endpoint losses) and the path is as short as the optimizer can make it. A stochastic string method does
+most of the work (each step: Adam on $(L_i - c_i)^2$, then curve shortening within the level set), and
+Levenberg--Marquardt steps on the penalty $w\sum_i (L_i - c_i)^2/\tau^2 + \sum_k \|\theta_{k+1}-\theta_k\|^2$ finish
+it. Every step uses fresh training sequences. A path is valid if the loss on 512 held-out sequences stays within
+$\tau = 0.02$ nats of the target at 9 points per segment; segments that leave this band get a midpoint, and the
+optimization continues. \emph{Detour ratio:} path length$/\|\theta_A - \theta_B\|$. \emph{Prediction-space ratio:} the
+same for the sum of Jensen--Shannon distances between consecutive models.
+
+% RESULTS
+
+\end{document}
