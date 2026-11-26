@@ -115,7 +115,7 @@ def curves_zoom(runs, refs, level, out, max_loss, offset, ticks, zoom):
         full.set_ylim(min(np.nanmin(line.get_ydata()) for line in full.lines) - 0.003, max_loss)
         full.set_xlim(0, None)
         late.set_xlim(zoom, None)
-        late.set_ylim(min(np.nanmin(line.get_ydata()) for line in late.lines) - 0.005, hi + 0.005)
+        late.set_ylim(min(np.min(line.get_ydata()) for line in late.lines if len(line.get_ydata())) - 0.005, hi + 0.005)
         for ax in (full, late):
             ax.set_xlabel('step')
             ax.set_ylabel(f'{name} loss')
