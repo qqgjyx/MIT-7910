@@ -145,20 +145,21 @@ def loss_fit(run, h=0.15, first=10):
     return f
 
 
-def equal_loss(a, b, first=10):
+def equal_loss(a, b, first=10, every=250):
     """JS between each prediction step s of `a` and the closer (smaller JS) of b's two prediction steps around the step
-    t where b's fitted loss equals a's (loss_fit). Runs as close as these differ by about as much as one run moves
-    between two prediction steps (250 apart), so the nearest step or an interpolation in t makes the curve jump; the
-    closer of the two does not."""
+    t where b's fitted loss equals a's (loss_fit). From step `every` on, both runs use only the steps on the regular
+    grid (multiples of `every`). Two runs on one data order are much closer at the same step than one step apart
+    (they have just seen the same batches), so for runs about as fast as Muon the nearest step, or the geometric
+    steps between grid points, make the curve jump between the two levels."""
+    grid_steps = lambda r: np.array([s for s in r.pred_steps if s >= first and (s < every or s % every == 0)])
     fa, fb = loss_fit(a, first=first), loss_fit(b, first=first)
-    sa, sb = np.asarray(a.pred_steps), np.asarray(b.pred_steps)
-    sa = sa[sa >= first]
-    grid = np.geomspace(first, sb[-1], 4000)
-    lb = np.minimum.accumulate(fb(np.log(grid)))  # decreasing
+    sa, sb = grid_steps(a), grid_steps(b)
+    dense = np.geomspace(first, sb[-1], 4000)
+    lb = np.minimum.accumulate(fb(np.log(dense)))  # decreasing
     la = fa(np.log(sa))
     ok = (la <= lb[0]) & (la >= lb[-1])
     lev, idx = np.unique(lb, return_index=True)
-    t = np.interp(la[ok], lev, grid[idx])
+    t = np.interp(la[ok], lev, dense[idx])
     hi = np.clip(np.searchsorted(sb, t), 1, len(sb) - 1)
     js = [min(distance(a, s, b, sb[i - 1])[0], distance(a, s, b, sb[i])[0]) for s, i in zip(sa[ok], hi)]
     return dict(loss=np.exp(la[ok]), js=np.array(js))
