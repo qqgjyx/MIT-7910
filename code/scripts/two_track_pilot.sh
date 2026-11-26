@@ -9,6 +9,8 @@
 # Cross-entropy (ts10m_ce_tt_pilot), every method in one job at Muon's CE rate:
 #   SUITE=ts10m_ce_tt_pilot LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon lc12 lc8 lc6 lc5 \
 #       svd_p-0.3
+# AdamW under CE (ts10m_ce_adamw_pilot), beside Muon to check the GPU against ts10m_ce_tt_pilot:
+#   SUITE=ts10m_ce_adamw_pilot LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon adamw
 suite=${SUITE:-ts10m_mse_tt_pilot}
 common="suite=$suite train.loss=${LOSS:-mse} optimizer=muon optim.muon.lr=${LR:-0.005} train.max_steps=400 schedule.decay=constant
     measure.hessian=false measure.delta_loss=false log.preds=false log.ckpt_steps.every=0 log.ckpt_steps.geometric=0"
@@ -29,7 +31,7 @@ pair() {  # <name> [option ...]
 declare -A opts=([muon]="" [tt5]="$check optim.muon.two_track_steps=5" [tt8]="$check optim.muon.two_track_steps=8"
     [tt12]="$check optim.muon.two_track_steps=12" [lc5]="$check optim.muon.lc_steps=5"
     [lc6]="$check optim.muon.lc_steps=6" [lc8]="$check optim.muon.lc_steps=8" [lc12]="$check optim.muon.lc_steps=12"
-    [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0")
+    [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0" [adamw]="optimizer=adamw")
 nvidia-smi --query-gpu=name --format=csv,noheader
 methods=("$@")
 [ $# -gt 0 ] || methods=(muon tt5 tt8 tt12 svd_p-0.3 svd_p0)
