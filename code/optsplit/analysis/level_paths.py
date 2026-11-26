@@ -334,9 +334,10 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`, then at most
     `shorten_steps` steps of curve shortening within the level set on `obj_shorten` (default obj); `obj_check`
     (default obj, with ca_check/cb_check) does the dense check. The points after the string and LM phases are saved
-    to `stash` (if given), and a later call starts from there; if they are off the level (max |L - c| above 2 tol), it
-    continues the string method from them, with a quarter of the step size, warming up over 10% of `resume_steps`
-    steps and annealing to 0 over the rest, and runs the LM stages again. Returns (points, result)."""
+    to `stash` (if given), and a later call starts from there. If they are off the level (max |L - c| above 2 tol),
+    the string method continues from them once (per call) without the springs (beta = 0), which cut corners off the
+    level, with a quarter of the step size, warming up over 10% of `resume_steps` steps and annealing to 0 over the
+    rest, and the LM stages run again; the points closer to the level are kept. Returns (points, result)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
     obj_shorten = obj_shorten or obj
@@ -353,7 +354,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         o.rotate()
         return o.loss(a), o.loss(b)
 
-    def string(X, k, scale=1.0, hold=0.7):
+    def string(X, k, scale=1.0, hold=0.7, springs=True):
         """At most k steps of a stochastic string method, with Adam step size scale * lr: on a fresh group of
         sequences, each point takes an Adam step on (L_i - c_i)^2 / 2 (descent to the level set, like training; from
         below it climbs), then moves by beta times the discrete Laplacian of the path minus its component along the
@@ -378,7 +379,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             lap = P[:-2] + P[2:] - 2 * X
             u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
             lap -= (lap * u).sum(1, keepdim=True) * u
-            X = X - f * scale * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.95 ** t)).sqrt() + 1e-8) + f * beta * lap
+            X = X - f * scale * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.95 ** t)).sqrt() + 1e-8) + f * springs * beta * lap
             del P, lap, u, G
             if t <= stop and t % 50 == 0 and t > warm:  # early stop: at the level, or flat over the last 200 steps
                 chk.append(check_dev(X))
@@ -491,21 +492,33 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     st = torch.load(stash, map_location=a.device) if stash is not None and Path(stash).exists() else None
     st = st if st is not None and st['settings']['n'] == n else None
     if st is not None:
-        X, stages = st['X'], st['stages']
+        X, stages = st['X'], list(st['stages'])
         hist.extend(st['hist'])
         log(f"resumed after the string and LM phases from {stash}, max|L-c| {stages[-1]['max_r']:.4f}")
-    if st is None or stages[-1]['max_r'] > 2 * tol:
-        if st is not None:  # a path off the level: continue from it
-            X = string(X, resume_steps, scale=0.25, hold=0.1)
-            stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+    def string_lm(X, cont):
+        if cont:  # from a path off the level, without the springs, which cut corners off it
+            X = string(X, resume_steps, scale=0.25, hold=0.1, springs=False)
         elif steps:
             X = string(X, steps)
+        if cont or steps:
             stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
         for w in ws:
             X = run_stage(X, w, iters, ramp=iters // 2)
             if hist:
                 stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
-        if stash is not None:
+        return X
+
+    if st is None:
+        X = string_lm(X, False)
+        if stash is not None and stages:
+            torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
+    if resume_steps and stages and stages[-1]['max_r'] > 2 * tol:  # off the level: one continuation
+        best = X, list(stages)
+        X = string_lm(X, True)
+        if stages[-1]['max_r'] >= best[1][-1]['max_r']:
+            log(f"no closer to the level ({stages[-1]['max_r']:.4f}): back to the saved points")
+            X, stages = best[0], list(best[1])
+        elif stash is not None:
             torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
     if shorten_steps:
         X = shorten(X, shorten_steps)
@@ -768,7 +781,8 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
           f"(held-out set); path set max dev at the points {res['pathset_max_dev']:.4f}", flush=True)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(res, indent=1))
-    Path(out).with_suffix('.stage.pt').unlink(missing_ok=True)
+    if res['ok']:  # a path off the level keeps its saved points, to continue from
+        Path(out).with_suffix('.stage.pt').unlink(missing_ok=True)
     if points_out:
         torch.save(dict(a=sa_, b=sb_, offsets=(X - straight(a, b, len(X))).half().cpu()), points_out)
 
@@ -927,7 +941,8 @@ def cmd_work(args):
     Writes tier1_done when every tier-1 output exists. Exit 0: nothing left to take; 3: the reruns are not ready
     and nothing is making them. Restarts itself in place when asked (restart_if_asked), dropping its locks. With YIELD=1 in the
     environment, stops (exit 0) instead of taking a new task while a job of the user that is not a level-paths one
-    waits, unheld, for this job's partition."""
+    waits, unheld, for this job's partition; with YIELD=limit, only while it waits for a per-user limit (QOS...,
+    Assoc...: it would start if this job ended)."""
     global RESTART
     A = Path(args.dir)
     RESTART, model, sets = A / 'restart_workers', None, None
@@ -938,11 +953,12 @@ def cmd_work(args):
             lock.unlink()
     while True:
         restart_if_asked()
-        if os.environ.get('YIELD') == '1':
+        if os.environ.get('YIELD') in ('1', 'limit'):
             q = subprocess.run(['squeue', '-u', os.environ.get('USER', ''), '-h', '-t', 'PD', '-p',
                                 os.environ.get('SLURM_JOB_PARTITION', ''), '-o', '%j|%r'], capture_output=True, text=True)
             others = [l for l in q.stdout.splitlines() if not l.startswith(('lp_', 'level_paths'))
-                      and not any(r in l for r in ('Held', 'Dependency', 'BeginTime'))]
+                      and not any(r in l for r in ('Held', 'Dependency', 'BeginTime'))
+                      and (os.environ['YIELD'] == '1' or any(r in l for r in ('QOS', 'Assoc')))]
             if others:
                 print(f'yielding the GPU: {others[0]} waits', flush=True)
                 return 0

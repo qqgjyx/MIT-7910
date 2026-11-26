@@ -16,7 +16,8 @@
 #   - GROUP=1: one job per job name runs at a time (submit the same name with several GPU types): the first to start
 #     holds the others and releases them when it ends or is requeued (of two that start together, the lower id stays);
 #   - YIELD=1: the workers take no new task while another job of the user, not a level-paths one, waits for this
-#     partition (for deferred work on shared slots, with --nice).
+#     partition (for deferred work on shared slots, with --nice). YIELD=limit: only while that job waits for a per-user limit
+#     (it would start if this job ended).
 # Any failure ends the job, and every wait checks every 1-2 minutes that what it waits for is alive.
 # From the code directory (or with --chdir): sbatch --exclude node4207,node2809,node2810 -o <log> slurm/level_paths.sbatch
 source "${OPTSPLIT_CODE:-$PWD}/slurm/env.sh" || exit 1
