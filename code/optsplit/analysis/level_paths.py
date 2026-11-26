@@ -626,6 +626,75 @@ def cmd_run(args):
                 release(f)
 
 
+STYLE = {'adamw-muon_d0': dict(color='C0', label='AdamW vs Muon, same data order'),
+         'adamw-muon_d1': dict(color='C0'),
+         'adamw_d0-d1': dict(color='0.25', label='AdamW, two data orders'),
+         'muon_d0-d1': dict(color='0.6', label='Muon, two data orders')}
+
+
+def collect(out_dir):
+    """{pair: [record per level]} from the profiles and bands of out_dir; the level's x is the mean training loss of
+    the endpoints on the probe (the training loss of Fig. 1)."""
+    out = Path(out_dir)
+    recs = {}
+    for f in sorted((out / 'profile').glob('*.json')):
+        level, pair = f.stem.split('_', 1)
+        prof = json.loads(f.read_text())
+        r = dict(level=float(level), probe=float(np.mean(prof['probe'])), prof=prof)
+        for n in (10, 20):
+            g = out / 'band' / f'{f.stem}_n{n}.json'
+            r[f'n{n}'] = json.loads(g.read_text()) if g.exists() else None
+        g = sorted((out / 'walk').glob(f'{f.stem}_mu*.json'))
+        r['walk'] = json.loads(g[0].read_text()) if g else None
+        recs.setdefault(pair, []).append(r)
+    for pair in recs:
+        recs[pair].sort(key=lambda r: -r['level'])
+    return recs
+
+
+def cmd_plot(args):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from optsplit.analysis.rank_metrics import loss_axis
+    plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.labelsize': 7, 'legend.fontsize': 6,
+                         'xtick.labelsize': 6, 'ytick.labelsize': 6})
+    recs = collect(args.out_dir)
+    fig, axes = plt.subplots(1, 4, figsize=(7.1, 1.75))
+    for pair, rs in recs.items():
+        st = STYLE[pair]
+        x = np.array([r['probe'] for r in rs])
+        val = lambda f: np.array([np.nan if v is None else v for v in map(f, rs)], dtype=float)
+        up = val(lambda r: r['n10'] and r['n10']['valid']['ratio'])
+        lo = val(lambda r: r['n20'] and r['n20']['fixed']['ratio'])
+        axes[0].plot(x, up - 1, 'o-', ms=2.5, lw=0.9, **st)
+        axes[0].vlines(x, lo - 1, up - 1, color=st['color'], lw=0.6)
+        axes[0].plot(x, lo - 1, '_', ms=4, color=st['color'])
+        axes[1].plot(x, [r['prof']['rise'] for r in rs], 'o-', ms=2.5, lw=0.9, color=st['color'])
+        axes[1].plot(x, [-r['prof']['dip'] for r in rs], 'o--', ms=2.5, lw=0.9, color=st['color'], mfc='w')
+        axes[2].plot(x, val(lambda r: r['n10'] and r['n10']['valid']['pred_ratio']), 'o-', ms=2.5, lw=0.9,
+                     color=st['color'])
+        axes[2].plot(x, [r['prof']['pred_ratio'] for r in rs], 'o--', ms=2.5, lw=0.9, color=st['color'], mfc='w')
+        axes[3].plot(x, [r['prof']['rel_distance']['all'] for r in rs], 'o-', ms=2.5, lw=0.9, color=st['color'])
+    axes[0].set(yscale='log', title='constant-loss path: length / distance $-$ 1')
+    axes[1].axhline(0, color='k', lw=0.5)
+    axes[1].set(title='straight line: rise and dip (nats)')
+    axes[2].set(yscale='log', title='prediction space: length / distance')
+    axes[3].set(title='distance / distance from init')
+    for ax in axes:
+        loss_axis(ax)
+        ax.set_xlabel('training loss')
+    from optsplit.analysis.plots import panel_labels
+    panel_labels(axes)
+    h = [plt.Line2D([], [], color=STYLE[k]['color'], lw=0.9) for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')]
+    fig.legend(h, [STYLE[k]['label'] for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')], loc='lower center',
+               ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.06))
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(args.out, bbox_inches='tight')
+    print(f'wrote {args.out}')
+
+
 def cmd_profile(args):
     model, sets = _setup_from(args.a, args)
     do_profile(model, sets, args.a, args.b, args, args.out)
@@ -666,6 +735,9 @@ def main():
     s.add_argument('--levels', nargs='+', required=True)
     s.add_argument('--suite', default='ts10m_level_paths')
     s.add_argument('--out', required=True)
+    s = sub.add_parser('plot')
+    s.add_argument('out_dir')
+    s.add_argument('--out', required=True)
     s = sub.add_parser('prune')
     s.add_argument('select')
     s = sub.add_parser('profile')
@@ -696,7 +768,7 @@ def main():
     args = p.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
     {'losses': cmd_losses, 'select': cmd_select, 'prune': cmd_prune, 'profile': cmd_profile, 'band': cmd_band,
-     'run': cmd_run}[args.cmd](args)
+     'run': cmd_run, 'plot': cmd_plot}[args.cmd](args)
 
 
 if __name__ == '__main__':
