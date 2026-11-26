@@ -303,12 +303,14 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=1000, lr=1e-3,
          beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=300, round_iters=10, m=8, max_points=40,
-         init=None, log=print):
+         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
-    method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`; `obj_check`
+    method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`, then at most
+    `shorten_steps` steps of curve shortening within the level set on `obj_shorten` (default obj); `obj_check`
     (default obj, with ca_check/cb_check) does the dense check. Returns (points, result dict)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
+    obj_shorten = obj_shorten or obj
     ca_check = ca if ca_check is None else ca_check
     cb_check = cb if cb_check is None else cb_check
     D = float((a - b).norm())
@@ -348,8 +350,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.99 ** t)).sqrt() + 1e-8) + f * beta * lap
             del P, lap, u, G
             if t <= stop and t % 50 == 0 and t > warm:  # early stop: at the level, or flat over the last 200 steps
-                cc = targets(ca_check, cb_check, len(X))
-                dev = float(np.abs(np.array([obj_check.loss(x) for x in X]) - cc).max())
+                dev = check_dev(X)
                 chk.append((dev, float(lengths(X, a, b).sum() / D)))
                 log(f"string n={len(X)} t={t}: max|L-c| at the points {dev:.4f} (check set), ratio {chk[-1][1]:.5f}")
                 (d0, r0), (d1, r1) = chk[max(0, len(chk) - 5)], chk[-1]
@@ -362,6 +363,46 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                                  ratio=float(lengths(X, a, b).sum() / D), time=time.time() - t0))
                 log(f"string n={len(X)} t={t}: max|L-c| {hist[-1]['max_r']:.4f} (batch, before the step), "
                     f"ratio {hist[-1]['ratio']:.5f} ({hist[-1]['time']:.0f}s)")
+        return X
+
+    def check_dev(X):  # max |L - c| at the points, on the check set
+        cc = targets(ca_check, cb_check, len(X))
+        return float(np.abs(np.array([obj_check.loss(x) for x in X]) - cc).max())
+
+    def shorten(X, k):
+        """At most k steps of curve shortening within the level set, to remove the wander that the noise of the string
+        phase leaves in the path: on a fresh group of sequences of obj_shorten (a larger batch than the string
+        phase's), each point moves by shorten_beta times the discrete Laplacian of the path minus its component along
+        the point's loss gradient, plus a Newton step back to its target loss. Stops once the length has fallen by
+        less than 1% of its excess over the last 100 steps. The check-set max |L - c| is computed every 50 steps;
+        the step is halved if it exceeds its value at the start (or tol) by more than 0.01."""
+        bs, ratios = shorten_beta, [float(lengths(X, a, b).sum() / D)]
+        ref = max(tol, check_dev(X))
+        hist.append(dict(phase='shorten', n=len(X), t=0, beta=bs, check_max_r=ref, ratio=ratios[0],
+                         time=time.time() - t0))
+        for t in range(1, k + 1):
+            c = targets(*ends(obj_shorten), len(X))
+            L, G = evaluate(obj_shorten, X)
+            P = torch.cat([a[None], X, b[None]])
+            lap = P[:-2] + P[2:] - 2 * X
+            gg = (G * G).sum(1, keepdim=True).clamp_min(1e-24)
+            lap -= (lap * G).sum(1, keepdim=True) / gg * G
+            X = X + bs * lap - torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G / gg
+            del P, lap, G, gg
+            if t % 25 == 0:
+                ratios.append(float(lengths(X, a, b).sum() / D))
+                h = dict(phase='shorten', n=len(X), t=t, beta=bs, max_r=float(np.abs(L - c).max()), ratio=ratios[-1],
+                         time=time.time() - t0)
+                if t % 50 == 0:
+                    h['check_max_r'] = check_dev(X)
+                    if h['check_max_r'] > ref + 0.01:
+                        bs /= 2
+                hist.append(h)
+                log(f"shorten n={len(X)} t={t}: ratio {h['ratio']:.5f}, max|L-c| {h['max_r']:.4f} (batch, before the "
+                    f"step)" + (f", {h['check_max_r']:.4f} (check set)" if 'check_max_r' in h else '') +
+                    f", beta {bs:g} ({h['time']:.0f}s)")
+                if len(ratios) >= 5 and ratios[-5] - ratios[-1] < max(1e-6, 0.01 * (ratios[-5] - 1)):
+                    break
         return X
 
     lam = [1.0]  # Levenberg-Marquardt damping, adapted: /3 after an accepted step, x4 after a rejected one
@@ -412,6 +453,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         X = run_stage(X, w, iters, ramp=iters // 2)
         if hist:
             stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+    if shorten_steps:
+        X = shorten(X, shorten_steps)
+        stages.append(dict(w='shorten', ratio=hist[-1]['ratio'], max_r=hist[-1].get('max_r')))
     def summary(X, worst, dense):
         seg = lengths(X, a, b)
         _, Jv, ends = walk(obj_check, [a, *X, b])
@@ -442,11 +486,14 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         if round_steps:
             X = string(X, round_steps)
         X = run_stage(X, ws[-1], round_iters, ramp=round_iters // 2)
+        if shorten_steps:
+            X = shorten(X, shorten_steps)
     valid = summary(X, worst, dense)  # after the insertions
     res = dict(**valid, fixed=fixed, valid=valid, distance=D, seg=lengths(X, a, b).tolist(), tol=tol, c_a=ca_check,
                c_b=cb_check, dense=dense, history=hist, checks=checks, stages=stages,
                settings=dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, rounds=rounds,
-                             round_steps=round_steps, round_iters=round_iters, m=m))
+                             round_steps=round_steps, round_iters=round_iters, m=m, shorten_steps=shorten_steps,
+                             shorten_beta=shorten_beta))
     return X, res
 
 
@@ -642,6 +689,9 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     k = max(1, args.batch_seqs // args.chunk)  # the string phase: groups of batch_seqs sequences
     small = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)],
                       amp=True)
+    k = max(1, args.shorten_seqs // args.chunk)  # the shortening phase: groups of shorten_seqs sequences
+    mid = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)],
+                    amp=True)
     ca, cb = fast.loss(a), fast.loss(b)
     init = None
     if perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
@@ -652,7 +702,8 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     X, res = band(fast, a, b, ca, cb, obj_check=held, ca_check=held.loss(a), cb_check=held.loss(b), n=n,
                   obj_string=small, steps=args.steps, lr=args.lr, beta=args.beta, ws=args.ws, iters=args.iters,
                   tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
-                  m=args.m, init=init, log=say)
+                  m=args.m, init=init, obj_shorten=mid, shorten_steps=args.shorten_steps,
+                  shorten_beta=args.shorten_beta, log=say)
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
@@ -992,6 +1043,9 @@ def band_args(s):
     s.add_argument('--round-steps', type=int, default=300, help='string-method steps after an insertion')
     s.add_argument('--round-iters', type=int, default=10)
     s.add_argument('--m', type=int, default=8)
+    s.add_argument('--shorten-steps', type=int, default=400, help='at most this many curve-shortening steps')
+    s.add_argument('--shorten-beta', type=float, default=0.4, help='curve-shortening step (stable below 0.5)')
+    s.add_argument('--shorten-seqs', type=int, default=256, help='sequences per curve-shortening step')
     s.add_argument('--points', type=int, default=51)
     s.add_argument('--walk-steps', type=int, default=80)
     s.add_argument('--mu', type=float, default=10.0)

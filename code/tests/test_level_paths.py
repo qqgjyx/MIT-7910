@@ -60,6 +60,25 @@ def test_band_follows_a_circular_level_set(sign):
     assert res['ratio'] == pytest.approx(angle / (2 * math.sin(angle / 2)), rel=0.01)
 
 
+def test_shortening_removes_wander_on_a_sphere():
+    """L = |x|^2 in 3-d, c = 1: a path on the unit sphere with random wander between two points of the equator. The
+    shortening phase alone (no string phase, no LM) brings it to the great-circle arc, still on the sphere."""
+    obj = Toy(lambda x: x.pow(2).sum())
+    angle = 2 * math.pi / 3
+    a = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float64)
+    b = torch.tensor([math.cos(angle), math.sin(angle), 0.0], dtype=torch.float64)
+    t = torch.linspace(0, angle, 12, dtype=torch.float64)[1:-1]
+    z = 0.3 * torch.randn(10, generator=torch.Generator().manual_seed(0), dtype=torch.float64)
+    wander = torch.stack([torch.cos(t), torch.sin(t), z], 1)
+    wander = wander / wander.norm(dim=1, keepdim=True)
+    X, res = band(obj, a, b, 1.0, 1.0, n=10, steps=0, ws=(), rounds=0, init=wander, shorten_steps=1000, log=quiet)
+    arc = angle / (2 * math.sin(angle / 2))
+    shorten = [h for h in res['history'] if h.get('phase') == 'shorten']
+    assert shorten[0]['ratio'] > arc + 0.03
+    assert res['ratio'] == pytest.approx(arc, rel=2e-3)
+    assert np.abs(X.norm(dim=1).numpy() - 1).max() < 1e-3
+
+
 @pytest.mark.parametrize('rotate', [False, True])
 def test_band_respects_the_constraint_on_a_tiny_gpt(rotate):
     """Two tiny GPTs trained from one initialization on two data orders (the straight line between them rises by
