@@ -23,7 +23,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from optsplit.analysis.distance import js_divergence
 from optsplit.analysis.io import Run, load_runs
+from optsplit.loss import log_probs, mean_loss
 from optsplit.models import build_model, layer
 
 PATH_SEED, HELDOUT_SEED = 101, 102  # fixed training sequences (the probe uses seed 0)
@@ -71,6 +73,30 @@ class Objective:
         return total, torch.cat([p.grad.reshape(-1) for p in self.params])
 
     @torch.no_grad()
+    def walk(self, thetas):
+        """Loss at each parameter vector of the sequence `thetas`, the Jensen-Shannon divergence (bits, mean over
+        tokens, as in Fig. 1) between consecutive ones, and between the first and the last. Batch by batch, so no
+        predictions are stored."""
+        n, kind = len(thetas), self.model.loss_kind
+        L, J, ends = np.zeros(n), np.zeros(max(n - 1, 0)), 0.0
+        with self._precision():
+            for x, y in self.batches:
+                first = prev = None
+                for i in range(n):
+                    self._load(thetas[i])
+                    z = self.model(x).float().reshape(-1, self.model.config.vocab_size)
+                    L[i] += mean_loss(z, y.reshape(-1), kind).item()
+                    lp = log_probs(z, kind)
+                    if prev is not None:
+                        J[i - 1] += js_divergence(prev, lp)
+                    first = lp if first is None else first
+                    prev = lp
+                ends += js_divergence(first, prev)
+                del first, prev
+        k = len(self.batches)
+        return L / k, J / k, ends / k
+
+    @torch.no_grad()
     def per_seq(self, theta):
         """Mean loss of each sequence (for the noise of the set's mean)."""
         self._load(theta)
@@ -111,15 +137,48 @@ def check_order(model, spec, device):
 
 # ---------------------------------------------------------------- straight line
 
+class Polyline:
+    """The sequence of points P[k] + t (P[k+1] - P[k]) for consecutive (k, t) pairs, built lazily."""
+
+    def __init__(self, P, kt):
+        self.P, self.kt = P, kt
+
+    def __len__(self):
+        return len(self.kt)
+
+    def __getitem__(self, i):
+        k, t = self.kt[i]
+        return self.P[k] if t == 0 else torch.lerp(self.P[k], self.P[k + 1], float(t))
+
+
+def walk(obj, seq):
+    """(losses, JS between consecutive points or None, JS between the ends or None)."""
+    if hasattr(obj, 'walk'):
+        return obj.walk(seq)
+    return np.array([obj.loss(seq[i]) for i in range(len(seq))]), None, None
+
+
+def pred_length(J, ends):
+    """Length in prediction space (sum of JS distances, the square roots of the JS divergences) and its ratio to the
+    JS distance between the ends."""
+    if J is None:
+        return None, None
+    length = float(np.sqrt(np.maximum(J, 0)).sum())
+    return length, length / math.sqrt(ends)
+
+
 def profile(obj, a, b, n=51, ca=None, cb=None):
-    """Loss at (1-t) a + t b for t in linspace(0, 1, n); c(t) interpolates the endpoint losses."""
+    """Loss at (1-t) a + t b for t in linspace(0, 1, n); c(t) interpolates the endpoint losses. Also the length of
+    the line in prediction space over these n points."""
     ts = np.linspace(0, 1, n)
-    L = np.array([obj.loss(torch.lerp(a, b, float(t))) for t in ts])
+    L, J, ends = walk(obj, Polyline(torch.stack([a, b]), [(0, t) for t in ts]))
     ca = L[0] if ca is None else ca
     cb = L[-1] if cb is None else cb
     dev = L - (ca + ts * (cb - ca))
+    plen, pratio = pred_length(J, ends)
     return dict(t=ts.tolist(), loss=L.tolist(), c_a=float(ca), c_b=float(cb),
-                rise=float(max(dev.max(), 0)), dip=float(max(-dev.min(), 0)), distance=float((a - b).norm()))
+                rise=float(max(dev.max(), 0)), dip=float(max(-dev.min(), 0)), distance=float((a - b).norm()),
+                js_steps=None if J is None else J.tolist(), js_ends=ends, pred_length=plen, pred_ratio=pratio)
 
 
 # ---------------------------------------------------------------- elastic band
@@ -174,17 +233,15 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
     seg = lengths(X, a, b)
     s0 = np.concatenate([[0], np.cumsum(seg)])
     ts = np.linspace(0, 1, m + 2)
-    Lp = np.array([obj.loss(p) for p in P])
-    out_s, out_l, out_c, worst = [], [], [], []
-    for k in range(len(P) - 1):
-        Lk = np.array([Lp[k]] + [obj.loss(torch.lerp(P[k], P[k + 1], float(t))) for t in ts[1:-1]] + [Lp[k + 1]])
-        ck = c_pts[k] + ts * (c_pts[k + 1] - c_pts[k])
-        worst.append(float(np.abs(Lk - ck).max()))
-        keep = slice(None) if k == len(P) - 2 else slice(None, -1)
-        out_s += (s0[k] + ts * seg[k])[keep].tolist()
-        out_l += Lk[keep].tolist()
-        out_c += ck[keep].tolist()
-    return np.array(worst), dict(s=out_s, loss=out_l, c=out_c, points=Lp.tolist())
+    kt = [(k, t) for k in range(len(P) - 1) for t in ts[:-1]] + [(len(P) - 1, 0)]
+    L, J, ends = walk(obj, Polyline(P, kt))
+    c = np.array([c_pts[k] + t * (c_pts[k + 1] - c_pts[k]) if t else c_pts[k] for k, t in kt])
+    s = np.array([s0[k] + t * seg[k] if t else s0[k] for k, t in kt])
+    dev = np.abs(L - c)
+    worst = np.array([dev[k * (m + 1):(k + 1) * (m + 1) + 1].max() for k in range(len(P) - 1)])
+    plen, pratio = pred_length(J, ends)
+    return worst, dict(s=s.tolist(), loss=L.tolist(), c=c.tolist(), points=L[::m + 1].tolist(),
+                       js_steps=None if J is None else J.tolist(), js_ends=ends, pred_length=plen, pred_ratio=pratio)
 
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, ws=(1e-2, 1e-1, 1, 10, 100),
@@ -244,7 +301,10 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         X = run_stage(torch.stack(new), ws[-1], round_iters)
     seg = lengths(X, a, b)
     Xl = straight(a, b, len(X))
-    res = dict(distance=D, n=len(X), ratio=float(seg.sum() / D), seg=seg.tolist(), tol=tol,
+    _, Jv, ends = walk(obj_check, torch.cat([a[None], X, b[None]]))
+    plen, pratio = pred_length(Jv, ends)
+    res = dict(pred_length_points=plen, pred_ratio_points=pratio, pred_ratio=dense['pred_ratio'],
+               distance=D, n=len(X), ratio=float(seg.sum() / D), seg=seg.tolist(), tol=tol,
                offline_max=float((X - Xl).norm(dim=1).max() / D), c_a=ca_check, c_b=cb_check,
                max_dev=float(np.max(worst)), ok=bool(np.max(worst) <= tol), dense=dense, history=hist, checks=checks,
                stages=stages,
