@@ -10,9 +10,9 @@ two-track 12),
 the error of the update against the exact one on the run's own momentum (`two_track`
 records), the final validation loss per data order, the step at which the training loss reaches a level, and the GPU
 time (step x time per step) at which the validation loss reaches plain Muon's final one on the same data order.
-With --loss ce, all methods are timed in one pilot (ts10m_ce_tt_pilot), the exact runs log their own error against a
-float64 SVD, and LC12 also runs on a schedule shortened to plain Muon's GPU time (`LC12, equal GPU time`). Methods
-without runs are left out.
+With --loss ce, only LC is compared with the exact SVD and plain Muon (two-track was not rerun; CE_NOTE), all methods
+are timed in one pilot (ts10m_ce_tt_pilot), the exact runs log their own error against a float64 SVD, and LC12 also runs
+on a schedule shortened to plain Muon's GPU time (`LC12, equal GPU time`). Methods without runs are left out.
 Writes <dir>/two_track.txt, <dir>/two_track.json and <dir>/figures/two_track_val.png (two_track_ce.txt, ... with ce).
 """
 
@@ -49,6 +49,9 @@ METHODS = [
     ('two-track p=-0.5, $K=12$', '{tt}/muon_p-0.5_k12_d{d}', '{p1}/tt12', '47', '12', None),
 ]
 ORDERS = (0, 1, 2)
+CE_ROWS = ('exact SVD, $p=-0.3$', 'LC', 'Muon')  # label prefixes of the rows kept with --loss ce
+CE_NOTE = ('Two-track Newton-Schulz was not rerun under CE: under MSE (two_track.txt), K = 12 matched the exact run at 47 '
+           'products (0.5628 against 0.5626) and LC12 did as well at 36 (0.5624).')
 SUITES = {'mse': dict(svp='ts10m_mse_svp', tt='ts10m_mse_tt', main='ts10m_mse_main', lr='0.005',
                       p1='ts10m_mse_tt_pilot', p2='ts10m_mse_tt_pilot2', p3='ts10m_mse_tt_pilot3'),
           'ce': dict(svp='ts10m_ce_svp', tt='ts10m_ce_tt', main='ts10m_main', lr='0.01',
@@ -125,6 +128,8 @@ def main():
 
     rows, drawn = [], []
     for label, pattern, pilot, products, key, style in METHODS:
+        if args.loss == 'ce' and not label.startswith(CE_ROWS):
+            continue
         r, runs = row(label, pattern, pilot, products, key, args.level, SUITES[args.loss])
         if not runs:
             continue
@@ -149,6 +154,8 @@ def main():
                      + f' {mean(r["val"]):>7} ' + ' '.join(f'{cell(r["step"], d, ".0f"):>7}' for d in ORDERS) + ' '
                      + ' '.join(f'{cell(r["gpu_min"], d, ".1f").replace("nan", "never"):>6}' for d in ORDERS))
     tag = '' if args.loss == 'mse' else f'_{args.loss}'
+    if args.loss == 'ce':
+        lines.append(CE_NOTE)
     (out / f'two_track{tag}.txt').write_text('\n'.join(lines) + '\n')
     (out / f'two_track{tag}.json').write_text(json.dumps(rows, indent=1))
     print('\n'.join(lines))
