@@ -4,10 +4,13 @@
 - `profile`: loss along the straight line (1-t) theta_A + t theta_B; its highest rise above c and deepest dip below.
 - `band`: elastic band. N points theta_1..theta_N between the fixed endpoints theta_0 = theta_A, theta_{N+1} = theta_B
   minimise E_w = w sum_i ((L_i - c_i) / tol)^2 + sum_k |theta_{k+1} - theta_k|^2 / (D^2 / (N+1)), D = |theta_A - theta_B|,
-  c_i interpolated linearly between the endpoint losses. Each iteration is a Levenberg-Marquardt step on E_w (exact
-  for the springs, linearised loss) on a fresh group of training sequences (so that the path cannot fit one fixed
-  set); w grows over stages. Then the loss on a held-out set is checked densely along every segment; segments that
-  leave c +- tol get a midpoint and the band continues. Output: path length / D and the loss along the path.
+  c_i interpolated linearly between the endpoint losses. First a stochastic string method brings the points to the
+  level set and shortens the path (Adam steps on (L_i - c_i)^2 plus curve shortening within the level set; reaching
+  the level set from the straight line takes training-like steps), then Levenberg-Marquardt steps on E_w (exact for
+  the springs, linearised loss) converge it, w growing over stages. Every step uses a fresh group of training
+  sequences, so that the path cannot fit one fixed set. Then the loss on a held-out set is checked densely along
+  every segment; segments that leave c +- tol get a midpoint and the band continues. Output: path length / D and the
+  loss along the path.
 
 python -m optsplit.analysis.level_paths losses 'ts10m_main/adamw_d0' --steps 9000 10000 --out f.json
 python -m optsplit.analysis.level_paths profile ts10m_main/adamw_d0:10000 ts10m_main/muon_d0:8000 --out p.json
@@ -278,11 +281,14 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
                        js_steps=None if J is None else J.tolist(), js_ends=ends, pred_length=plen, pred_ratio=pratio)
 
 
-def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, ws=(1e-4, 1e-3, 1e-2, 1e-1, 1, 10),
-         iters=20, tol=0.02, rounds=4, round_iters=10, m=8, max_points=60, init=None, log=print):
-    """Elastic band between a and b at the losses ca -> cb (see the module docstring). `obj` drives the iterations,
-    `obj_check` (default obj, with ca_check/cb_check) the dense check. Returns (points, result dict)."""
+def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=600, lr=3e-4,
+         beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=200, round_iters=10, m=8, max_points=40,
+         init=None, log=print):
+    """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
+    method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`; `obj_check`
+    (default obj, with ca_check/cb_check) does the dense check. Returns (points, result dict)."""
     obj_check = obj_check or obj
+    obj_string = obj_string or obj
     ca_check = ca if ca_check is None else ca_check
     cb_check = cb if cb_check is None else cb_check
     D = float((a - b).norm())
@@ -290,11 +296,37 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     hist, t0 = [], time.time()
     rotating = len(getattr(obj, 'groups', None) or []) > 1
 
-    def ends():  # endpoint losses on the current group of sequences (after moving to the next one)
-        if not rotating:
+    def ends(o=obj):  # endpoint losses on the next group of sequences of o (if it has several)
+        if len(getattr(o, 'groups', None) or []) <= 1:
             return ca, cb
-        obj.rotate()
-        return obj.loss(a), obj.loss(b)
+        o.rotate()
+        return o.loss(a), o.loss(b)
+
+    def string(X, k):
+        """k steps of a stochastic string method: on a fresh group of sequences, each point takes an Adam step on
+        (L_i - c_i)^2 / 2 (descent to the level set, like training; from below it climbs), then moves by beta times
+        the discrete Laplacian of the path minus its component along the point's loss gradient (curve shortening
+        within the level set; it also evens out the spacing). Both step sizes decay to 0 over the last 30%."""
+        mom, sq = torch.zeros_like(X), torch.zeros_like(X)
+        for t in range(1, k + 1):
+            c = targets(*ends(obj_string), len(X))
+            L, G = evaluate(obj_string, X)
+            g = torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G
+            mom.lerp_(g, 0.1)
+            sq.lerp_(g * g, 0.01)
+            f = min(1.0, (k - t) / (0.3 * k))
+            P = torch.cat([a[None], X, b[None]])
+            lap = P[:-2] + P[2:] - 2 * X
+            u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
+            lap -= (lap * u).sum(1, keepdim=True) * u
+            X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.99 ** t)).sqrt() + 1e-8) + f * beta * lap
+            del P, lap, u, G
+            if t % max(1, k // 20) == 0 or t == k:
+                hist.append(dict(phase='string', n=len(X), t=t, max_r=float(np.abs(L - c).max()),
+                                 ratio=float(lengths(X, a, b).sum() / D), time=time.time() - t0))
+                log(f"string n={len(X)} t={t}/{k}: max|L-c| {hist[-1]['max_r']:.4f} (batch, before the step), "
+                    f"ratio {hist[-1]['ratio']:.5f} ({hist[-1]['time']:.0f}s)")
+        return X
 
     lam = [1.0]  # Levenberg-Marquardt damping, adapted: /3 after an accepted step, x4 after a rejected one
 
@@ -337,6 +369,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         return X
 
     stages = []
+    if steps:
+        X = string(X, steps)
+        stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
     for w in ws:
         X = run_stage(X, w, iters, ramp=iters // 2)
         if hist:
@@ -367,11 +402,15 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 new.append(P[k])
             if k in bad:
                 new.append((P[k] + P[k + 1]) / 2)
-        X = run_stage(torch.stack(new), ws[-1], round_iters, ramp=round_iters // 2)
+        X = torch.stack(new)
+        if round_steps:
+            X = string(X, round_steps)
+        X = run_stage(X, ws[-1], round_iters, ramp=round_iters // 2)
     valid = summary(X, worst, dense)  # after the insertions
     res = dict(**valid, fixed=fixed, valid=valid, distance=D, seg=lengths(X, a, b).tolist(), tol=tol, c_a=ca_check,
                c_b=cb_check, dense=dense, history=hist, checks=checks, stages=stages,
-               settings=dict(n=n, ws=list(ws), iters=iters, rounds=rounds, round_iters=round_iters, m=m))
+               settings=dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, rounds=rounds,
+                             round_steps=round_steps, round_iters=round_iters, m=m))
     return X, res
 
 
@@ -532,6 +571,8 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     # iterations on the pool (a fresh group of sequences each), the dense check on the held-out set
     fast, held = Objective(model, path_set, fp32=False, groups=pool), Objective(model, held)
+    k = max(1, args.batch_seqs // args.chunk)  # the string phase: groups of batch_seqs sequences
+    small = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)])
     ca, cb = fast.loss(a), fast.loss(b)
     init = None
     if perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
@@ -540,7 +581,8 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
         init = straight(a, b, n) + perturb * float((a - b).norm()) * torch.sin(math.pi * t) * u / u.norm()
     print(f'band {sa_} -> {sb_}, N={n}, perturb={perturb}', flush=True)
     X, res = band(fast, a, b, ca, cb, obj_check=held, ca_check=held.loss(a), cb_check=held.loss(b), n=n,
-                  ws=args.ws, iters=args.iters, tol=args.tol, rounds=args.rounds, round_iters=args.round_iters,
+                  obj_string=small, steps=args.steps, lr=args.lr, beta=args.beta, ws=args.ws, iters=args.iters,
+                  tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
                   m=args.m, init=init, log=lambda s: print(s, flush=True))
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
@@ -761,10 +803,15 @@ def cmd_band(args):
 
 def band_args(s):
     s.add_argument('--n', type=int, default=10)
-    s.add_argument('--ws', type=float, nargs='+', default=[1e-4, 1e-3, 1e-2, 1e-1, 1, 10])
-    s.add_argument('--iters', type=int, default=20)
+    s.add_argument('--steps', type=int, default=600, help='string-method steps')
+    s.add_argument('--lr', type=float, default=3e-4, help='Adam step of the string method')
+    s.add_argument('--beta', type=float, default=0.25, help='curve-shortening step of the string method')
+    s.add_argument('--batch-seqs', type=int, default=128, help='sequences per string-method step')
+    s.add_argument('--ws', type=float, nargs='+', default=[1, 10], help='weights of the Levenberg-Marquardt stages')
+    s.add_argument('--iters', type=int, default=10, help='Levenberg-Marquardt iterations per stage')
     s.add_argument('--tol', type=float, default=0.02)
     s.add_argument('--rounds', type=int, default=4)
+    s.add_argument('--round-steps', type=int, default=200, help='string-method steps after an insertion')
     s.add_argument('--round-iters', type=int, default=10)
     s.add_argument('--m', type=int, default=8)
     s.add_argument('--points', type=int, default=51)
