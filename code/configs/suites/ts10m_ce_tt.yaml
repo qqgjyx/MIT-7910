@@ -5,6 +5,8 @@
 # ts10m_ce_svp/muon_p-0.3_lr0.01_d0-d2 (exact) and ts10m_main/muon_d0-d2. At the log.two_track_check steps a run logs
 # the error of every method against the exact update on its own momentum. Kept small: no measurements, no stored
 # outputs, no optimizer state, checkpoints every 1000 steps.
+# Equal GPU time: LC12 with its whole schedule (warmup and cosine decay) shrunk to the GPU time of 10,000 Muon steps,
+# 7391 steps = 10,000 x 117.3 / 158.7 ms per step (Muon / LC12, timed side by side on one L40S in ts10m_ce_tt_pilot).
 suite: ts10m_ce_tt
 base: ../base/tinystories_10m.yaml
 overrides:
@@ -20,3 +22,5 @@ overrides:
 runs:
   - {optim.muon.lc_steps: [12, 8, 6, 5], train.data_seed: [0, 1, 2],
      name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
+  - {optim.muon.lc_steps: 12, train.max_steps: 7391, schedule.warmup_steps: 148, train.data_seed: [0, 1, 2],
+     name: "muon_p{optim.muon.sv_power}_lc12_eqtime_d{train.data_seed}"}
