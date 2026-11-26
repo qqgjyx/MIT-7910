@@ -95,28 +95,27 @@ def curves(by_lr, refs, level, out, max_loss, offset, ticks):
 
 def curves_zoom(runs, refs, level, out, max_loss, offset, ticks, zoom):
     """Training loss (top) and validation loss (bottom) on the probe against the step, at one learning rate: the whole
-    run (left, loss axis on log(L - offset)) and from step `zoom` on (right, linear, limits from the p <= 0 runs)."""
+    run (left, loss axis on log(L - offset)) and from step `zoom` on (right, linear, up to AdamW's loss: worse runs leave
+    the panel)."""
     fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.6), layout='constrained')
     handles = {}
     lines = [(f'$p={r.cfg.optim.muon.sv_power:g}$', r, dict(lw=0.9, color=color(r.cfg.optim.muon.sv_power)))
              for r in sorted(runs, key=lambda r: r.cfg.optim.muon.sv_power)]
     lines += [(REFS[name][0], run, dict(lw=1, **REFS[name][1])) for name, run in refs.items()]
     for (full, late), key, name in zip(axes, ('train_loss', 'val_loss'), ('training', 'validation')):
-        tail = []
         for label, run, style in lines:
             steps, v = run.series('eval', key)
             handles[label], = full.plot(steps, v, **style)
             late.plot(steps[steps >= zoom], v[steps >= zoom], **style)
-            if label.startswith('$') and run.cfg.optim.muon.sv_power <= 0 or label == REFS['muon'][0]:
-                tail.append(v[steps >= zoom])
+            if label == REFS['adamw'][0]:
+                hi = v[steps >= zoom].max()
         if key == 'train_loss':
             full.axhline(level, color='k', lw=0.4)
         log_axis(full, offset, ticks)
         full.set_ylim(min(np.nanmin(line.get_ydata()) for line in full.lines) - 0.003, max_loss)
         full.set_xlim(0, None)
         late.set_xlim(zoom, None)
-        lo, hi = min(t.min() for t in tail), max(t.max() for t in tail)
-        late.set_ylim(lo - 0.005, hi + 0.005)
+        late.set_ylim(min(np.nanmin(line.get_ydata()) for line in late.lines) - 0.005, hi + 0.005)
         for ax in (full, late):
             ax.set_xlabel('step')
             ax.set_ylabel(f'{name} loss')
