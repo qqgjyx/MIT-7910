@@ -522,48 +522,39 @@ def claim(out):
     """True if this process may compute `out`: it does not exist and nobody else holds its lock. A lock names the
     Slurm job, host and process: it is held while that process runs (same job: several workers share a job) or, for
     another job, while that job runs (a pending, e.g. preempted, job holds none; a requeued job takes its locks back).
-    Taking a lock is atomic (a hard link of a file that already names the owner); a stale lock is first moved aside,
-    which only one process can do."""
+    Claims in one directory take turns (an atomic mkdir), so two workers cannot both take over a stale lock."""
     out = Path(out)
     if out.exists():
         return False
     out.parent.mkdir(parents=True, exist_ok=True)
-    lock, job, host = out.with_suffix('.lock'), os.environ.get('SLURM_JOB_ID', 'local'), socket.gethostname()
-    mine, aside = (lock.with_name(f'{lock.name}.{x}.{host}.{os.getpid()}') for x in ('new', 'old'))
-    mine.write_text(f'{job}:{host}:{os.getpid()}')
-    try:
-        for _ in range(2):
+    mutex, lock = out.parent / 'claim.mutex', out.with_suffix('.lock')
+    job, host = os.environ.get('SLURM_JOB_ID', 'local'), socket.gethostname()
+    while True:
+        try:
+            mutex.mkdir()
+            break
+        except FileExistsError:
             try:
-                os.link(mine, lock)
-                return True
-            except FileExistsError:
-                pass
-            try:
-                owner = lock.read_text().strip()
+                if time.time() - mutex.stat().st_mtime > 120:  # left by a killed process
+                    mutex.rmdir()
             except FileNotFoundError:
-                continue
-            o_job, o_host, o_pid = (owner.split(':') + ['', ''])[:3]
+                pass
+            time.sleep(0.05)
+    try:
+        if out.exists():
+            return False
+        if lock.exists():
+            o_job, o_host, o_pid = (lock.read_text().strip().split(':') + ['', ''])[:3]
             if o_job == job:
                 if o_host == host and o_pid.isdigit() and int(o_pid) != os.getpid() and _alive(int(o_pid)):
                     return False
             elif o_job not in ('', 'local') and subprocess.run(['squeue', '-h', '-t', 'R', '-j', o_job],
                                                                capture_output=True, text=True).stdout.strip():
                 return False
-            try:
-                os.rename(lock, aside)
-            except FileNotFoundError:
-                return False
-            if aside.read_text().strip() != owner:  # moved a fresh lock of someone else: put it back
-                try:
-                    os.link(aside, lock)
-                except FileExistsError:
-                    pass
-                aside.unlink()
-                return False
-            aside.unlink()
-        return False
+        lock.write_text(f'{job}:{host}:{os.getpid()}')
+        return True
     finally:
-        mine.unlink(missing_ok=True)
+        mutex.rmdir()
 
 
 def release(out):
