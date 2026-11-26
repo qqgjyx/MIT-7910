@@ -41,11 +41,15 @@ STARTED, RESTART = time.time(), None  # RESTART: a worker's control file (see re
 
 def restart_if_asked():
     """In a worker (cmd_work): once its control file is newer than the process, re-execute the worker in place, with
-    fresh code and defaults but the same job and GPU (`touch <dir>/restart_workers` after a git pull). The task in
-    progress starts again; its lock names this pid, which the new process takes back."""
-    if RESTART is not None and RESTART.exists() and RESTART.stat().st_mtime > STARTED:
-        print(f'restart: {RESTART} is newer than this worker', flush=True)
-        os.execv(sys.executable, [sys.executable, '-m', 'optsplit.analysis.level_paths', *sys.argv[1:]])
+    fresh code and defaults but the same job and GPU (`touch <dir>/restart_workers` after a git pull: every worker;
+    `<dir>/restart_workers.<job id>`: the workers of one job). The task in progress starts again; its lock names
+    this pid, which the new process takes back."""
+    if RESTART is None:
+        return
+    for f in (RESTART, RESTART.with_name(f"{RESTART.name}.{os.environ.get('SLURM_JOB_ID', 'local')}")):
+        if f.exists() and f.stat().st_mtime > STARTED:
+            print(f'restart: {f} is newer than this worker', flush=True)
+            os.execv(sys.executable, [sys.executable, '-m', 'optsplit.analysis.level_paths', *sys.argv[1:]])
 
 
 def say(s):
