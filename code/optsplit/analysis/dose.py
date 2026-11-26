@@ -130,14 +130,19 @@ def curves_zoom(runs, refs, level, out, max_loss, offset, ticks, zoom):
 
 def paths(runs, muon, adamw, floors, out, max_loss, offset, ticks):
     """JS between each run and plain Muon on its data order, at equal step (a) and at equal training loss (b); grey:
-    two data orders of one optimizer (`floors`: name -> ({data order: run}, colour)); dotted: AdamW against Muon."""
+    two data orders of one optimizer (`floors`: name -> ({data order: run}, colour)); dotted: AdamW against Muon.
+    In (b), a median over 3 consecutive checkpoints: late in training the probe loss moves less between two
+    checkpoints than its noise, so single checkpoints get matched one checkpoint off and jump up."""
     fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.8), sharey=True, layout='constrained')
     handles = {}
     for ax, (curve, x) in zip(axes, ((step_curve, 'step_a'), (loss_curve, 'loss'))):
         def draw(a, b, label, **style):
             c = curve(a, b)
+            js = c['js'].copy()
+            if x == 'loss' and len(js) > 2:
+                js[1:-1] = np.median(np.lib.stride_tricks.sliding_window_view(js, 3), axis=1)
             ok = c['loss'] <= max_loss if x == 'loss' else np.ones(len(c['loss']), bool)
-            handles[label], = ax.plot(c[x][ok], c['js'][ok], **style)
+            handles[label], = ax.plot(c[x][ok], js[ok], **style)
 
         for name, (group, grey) in floors.items():
             for s, t in combinations(sorted(group), 2):
