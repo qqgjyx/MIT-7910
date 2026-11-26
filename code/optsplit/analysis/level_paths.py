@@ -312,9 +312,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         on (L_i - c_i)^2 / 2 (descent to the level set, like training; from below it climbs), then moves by beta
         times the discrete Laplacian of the path minus its component along the point's loss gradient (curve
         shortening within the level set; it also evens out the spacing). Both step sizes warm up over the first 10%
-        of the steps and then decay linearly to 0, over the last 30% of the k steps or, once the max |L - c| at the
-        points on the check set and the path length have stopped changing over the last 100 steps, over the next
-        quarter of the steps taken so far (early stop)."""
+        of the steps and then decay linearly to 0, over the last 30% of the k steps or, earlier, over the next
+        quarter of the steps taken so far, once the max |L - c| at the points on the check set is below 2 tol or has
+        improved by less than 2% (and the path length by less than 5% of its excess) over the last 200 steps."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
         warm, stop, decay, chk = 0.1 * k, int(0.7 * k), k - int(0.7 * k), []
         t = 0
@@ -332,16 +332,16 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             lap -= (lap * u).sum(1, keepdim=True) * u
             X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.99 ** t)).sqrt() + 1e-8) + f * beta * lap
             del P, lap, u, G
-            if t <= stop and t % 50 == 0 and t > warm:  # early stop: flat over the last 100 steps
+            if t <= stop and t % 50 == 0 and t > warm:  # early stop: at the level, or flat over the last 200 steps
                 cc = targets(ca_check, cb_check, len(X))
                 dev = float(np.abs(np.array([obj_check.loss(x) for x in X]) - cc).max())
                 chk.append((dev, float(lengths(X, a, b).sum() / D)))
                 log(f"string n={len(X)} t={t}: max|L-c| at the points {dev:.4f} (check set), ratio {chk[-1][1]:.5f}")
-                if len(chk) >= 3:
-                    (d0, r0), (d1, r1) = chk[-3], chk[-1]
-                    if abs(d1 - d0) < max(0.005, 0.05 * d0) and abs(r1 - r0) < max(2e-5, 0.05 * (r0 - 1)):
-                        stop, decay = t, max(20, t // 4)
-                        log(f'string: flat, decaying over {decay} steps')
+                (d0, r0), (d1, r1) = chk[max(0, len(chk) - 5)], chk[-1]
+                flat = len(chk) >= 5 and d0 - d1 < max(0.003, 0.02 * d0) and abs(r1 - r0) < max(2e-5, 0.05 * (r0 - 1))
+                if flat or d1 <= 2 * tol:
+                    stop, decay = t, max(20, t // 4)
+                    log(f"string: {'flat' if flat else 'at the level'}, decaying over {decay} steps")
             if t % 50 == 0 or t == stop + decay:
                 hist.append(dict(phase='string', n=len(X), t=t, max_r=float(np.abs(L - c).max()),
                                  ratio=float(lengths(X, a, b).sum() / D), time=time.time() - t0))
@@ -964,9 +964,9 @@ def cmd_band(args):
 
 def band_args(s):
     s.add_argument('--n', type=int, default=10)
-    s.add_argument('--steps', type=int, default=1000, help='string-method steps')
-    s.add_argument('--lr', type=float, default=1e-3, help='Adam step of the string method')
-    s.add_argument('--beta', type=float, default=0.25, help='curve-shortening step of the string method')
+    s.add_argument('--steps', type=int, default=3000, help='string-method steps')
+    s.add_argument('--lr', type=float, default=2e-3, help='Adam step of the string method')
+    s.add_argument('--beta', type=float, default=0.05, help='curve-shortening step of the string method')
     s.add_argument('--batch-seqs', type=int, default=128, help='sequences per string-method step')
     s.add_argument('--ws', type=float, nargs='+', default=[1, 10], help='weights of the Levenberg-Marquardt stages')
     s.add_argument('--iters', type=int, default=10, help='Levenberg-Marquardt iterations per stage')
