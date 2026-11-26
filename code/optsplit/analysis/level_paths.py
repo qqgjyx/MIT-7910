@@ -695,6 +695,33 @@ def cmd_plot(args):
     print(f'wrote {args.out}')
 
 
+NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs Muon, order 1',
+         'adamw_d0-d1': 'AdamW, orders 0 vs 1', 'muon_d0-d1': 'Muon, orders 0 vs 1'}
+
+
+def cmd_table(args):
+    """LaTeX rows: per level (the given ones, by index in the sorted levels, or all) and pair."""
+    recs = collect(args.out_dir)
+    f = lambda v, d=3: '--' if v is None else f'{v:.{d}f}'
+    rows = []
+    for pair, rs in recs.items():
+        for r in rs:
+            n10, n20 = r['n10'], r['n20']
+            rows.append((r['probe'], pair, ' & '.join([
+                f"{r['probe']:.2f}", NAMES[pair], f(abs(r['prof']['c_a'] - r['prof']['c_b'])),
+                f(r['prof']['rise'], 2), f(r['prof']['dip'], 2), f(r['prof']['rel_distance']['all'], 2),
+                f(n10 and n10['fixed']['ratio'], 4), f(n20 and n20['fixed']['ratio'], 4),
+                f(n10 and n10['valid']['ratio'], 4) + (f" ({n10['valid']['n']})" if n10 else ''),
+                f(n10 and n10['valid']['max_dev']), f(r['prof']['pred_ratio'], 2),
+                f(n10 and n10['valid']['pred_ratio'], 2)]) + r' \\'))
+    keep = sorted({x for x, _, _ in rows}, reverse=True)
+    keep = [keep[i] for i in args.levels] if args.levels else keep
+    order = list(NAMES)
+    for x, _, row in sorted(rows, key=lambda t: (-t[0], order.index(t[1]))):
+        if x in keep:
+            print(row)
+
+
 def cmd_profile(args):
     model, sets = _setup_from(args.a, args)
     do_profile(model, sets, args.a, args.b, args, args.out)
@@ -738,6 +765,9 @@ def main():
     s = sub.add_parser('plot')
     s.add_argument('out_dir')
     s.add_argument('--out', required=True)
+    s = sub.add_parser('table')
+    s.add_argument('out_dir')
+    s.add_argument('--levels', type=int, nargs='*')
     s = sub.add_parser('prune')
     s.add_argument('select')
     s = sub.add_parser('profile')
@@ -768,7 +798,7 @@ def main():
     args = p.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
     {'losses': cmd_losses, 'select': cmd_select, 'prune': cmd_prune, 'profile': cmd_profile, 'band': cmd_band,
-     'run': cmd_run, 'plot': cmd_plot}[args.cmd](args)
+     'run': cmd_run, 'plot': cmd_plot, 'table': cmd_table}[args.cmd](args)
 
 
 if __name__ == '__main__':
