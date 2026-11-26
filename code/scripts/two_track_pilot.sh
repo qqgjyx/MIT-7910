@@ -6,8 +6,11 @@
 #   sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh [method ...]   (default: all; SUITE=<name> for a new suite)
 # Second pilot (ts10m_mse_tt_pilot2): SUITE=ts10m_mse_tt_pilot2 ... muon tt12 lc5 lc6, so LC is timed beside both.
 # Third (ts10m_mse_tt_pilot3): muon tt12 lc8 lc12.
+# Cross-entropy (ts10m_ce_tt_pilot), every method in one job at Muon's CE rate:
+#   SUITE=ts10m_ce_tt_pilot LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon lc12 tt12 tt8 \
+#       tt5 lc8 lc6 lc5 svd_p-0.3 svd_p0
 suite=${SUITE:-ts10m_mse_tt_pilot}
-common="suite=$suite train.loss=mse optimizer=muon optim.muon.lr=0.005 train.max_steps=400 schedule.decay=constant
+common="suite=$suite train.loss=${LOSS:-mse} optimizer=muon optim.muon.lr=${LR:-0.005} train.max_steps=400 schedule.decay=constant
     measure.hessian=false measure.delta_loss=false log.preds=false log.ckpt_steps.every=0 log.ckpt_steps.geometric=0"
 check="optim.muon.sv_power=-0.3 log.two_track_check=[1,10,50,100,200,399]"
 mkdir -p "$OPTSPLIT_ROOT/runs/$suite"
