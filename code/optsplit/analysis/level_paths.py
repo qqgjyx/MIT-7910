@@ -17,6 +17,8 @@ import argparse
 import contextlib
 import json
 import math
+import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -340,16 +342,37 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
 
 # ---------------------------------------------------------------- CLI
 
+def claim(out):
+    """True if this job may compute `out`: it does not exist and no other running Slurm job holds its lock (so that
+    several jobs can share the list of outputs; a requeued job keeps its id and takes its own lock back)."""
+    out = Path(out)
+    if out.exists():
+        return False
+    lock, me = out.with_suffix('.lock'), os.environ.get('SLURM_JOB_ID', 'local')
+    if lock.exists():
+        other = lock.read_text().strip()
+        if other != me and other != 'local' and subprocess.run(['squeue', '-h', '-j', other], capture_output=True,
+                                                                text=True).stdout.strip():
+            return False
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(me)
+    return True
+
+
+def release(out):
+    Path(out).with_suffix('.lock').unlink(missing_ok=True)
+
+
 def _setup_from(spec, args):
     run = Run(spec.rsplit(':', 1)[0])
-    model, sets = setup(run.cfg, args.n_seqs, args.device)
+    model, sets = setup(run.cfg, args.n_seqs, args.device, args.chunk)
     check_order(model, spec, args.device)
     return model, sets
 
 
 def cmd_losses(args):
     runs = load_runs(args.runs)
-    model, (path_set, _, _) = setup(runs[0].cfg, args.n_seqs, args.device)
+    model, (path_set, _, _) = setup(runs[0].cfg, args.n_seqs, args.device, args.chunk)
     obj = Objective(model, path_set)
     out = {}
     for r in runs:
@@ -484,19 +507,23 @@ def cmd_run(args):
             if model is None:
                 model, sets = _setup_from(sa_, args)
             name = f'{level}_{pair}'
-            if not (out / 'profile' / f'{name}.json').exists():
-                do_profile(model, sets, sa_, sb_, args, out / 'profile' / f'{name}.json')
+            f = out / 'profile' / f'{name}.json'
+            if claim(f):
+                do_profile(model, sets, sa_, sb_, args, f)
+                release(f)
             if args.profiles_only:
                 continue
             for n in args.band_n:
                 f = out / 'band' / f'{name}_n{n}.json'
-                if not f.exists():
+                if claim(f):
                     do_band(model, sets, sa_, sb_, args, f, n=n,
                             points_out=out / 'points' / f'{name}_n{n}.pt' if args.save_points else None)
+                    release(f)
             for seed in args.perturb_seeds:
                 f = out / 'band' / f'{name}_n{args.n}_perturb{args.perturb}_s{seed}.json'
-                if not f.exists():
+                if claim(f):
                     do_band(model, sets, sa_, sb_, args, f, perturb=args.perturb, perturb_seed=seed)
+                    release(f)
 
 
 def cmd_profile(args):
@@ -525,6 +552,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--n-seqs', type=int, default=512, help='training sequences in the path set and the held-out set')
     p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+    p.add_argument('--chunk', type=int, default=64, help='sequences per forward pass (memory)')
     sub = p.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('losses')
     s.add_argument('runs', nargs='+')
