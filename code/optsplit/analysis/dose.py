@@ -12,7 +12,8 @@ Needs the whole-model metrics of the runs (python -m optsplit.metrics.trajectory
 validation loss at Muon's rate instead, over the whole run and from that step on (also as .png). --paths:
 <dir>/figures/dose_paths.pdf, the Jensen-Shannon divergence of the predictions on the probe between each run (data order
 0, Muon's rate) and plain Muon on the same data order, at equal step and at equal training loss, with the pairs of data
-orders of plain Muon (and of a p run on several data orders) as the floor, as in Fig. 1 of the checkpoint.
+orders of plain Muon (and of a p run on several data orders) as the floor, as in Fig. 1 of the checkpoint; its curves
+in <dir>/figures/dose_paths.json.
 """
 
 import argparse
@@ -168,14 +169,16 @@ def equal_loss(a, b, first=10, every=250):
 def paths(runs, muon, adamw, floors, out, max_loss, offset, ticks):
     """JS between each run and plain Muon on its data order, at equal step (a) and at equal training loss (b, see
     equal_loss); grey: two data orders of one optimizer (`floors`: name -> ({data order: run}, colour)); dotted: AdamW
-    against Muon."""
+    against Muon. The curves also go to `out` with suffix .json."""
     fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.8), sharey=True, layout='constrained')
-    handles = {}
+    handles, data = {}, []
     for ax, (curve, x) in zip(axes, ((step_curve, 'step_a'), (equal_loss, 'loss'))):
         def draw(a, b, label, **style):
             c = curve(a, b)
             ok = c['loss'] <= max_loss if x == 'loss' else np.ones(len(c['loss']), bool)
             handles[label], = ax.plot(c[x][ok], c['js'][ok], **style)
+            data.append(dict(x=x, label=label, a=a.id, b=b.id, at=np.asarray(c[x])[ok].tolist(),
+                             js=np.asarray(c['js'])[ok].tolist()))
 
         for name, (group, grey) in floors.items():
             for s, t in combinations(sorted(group), 2):
@@ -189,6 +192,7 @@ def paths(runs, muon, adamw, floors, out, max_loss, offset, ticks):
     fig.legend(handles.values(), handles.keys(), loc='outside lower center', ncol=6, frameon=False)
     panel_labels(axes)
     fig.savefig(out)
+    out.with_suffix('.json').write_text(json.dumps(data))
     print(f'wrote {out}')
 
 
