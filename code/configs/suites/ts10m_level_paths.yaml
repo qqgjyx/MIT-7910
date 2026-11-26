@@ -1,5 +1,5 @@
 # Reruns of ts10m_main (same configs) that save checkpoints densely around the training losses 2.7, 2.4, 2.1, 1.81
-# and 1.6 (and no others), so that AdamW and Muon checkpoints can be matched in loss for the constant-loss paths
+# and 1.6, and for Muon near 1.31 (the final loss of AdamW), and no others, so that AdamW and Muon checkpoints can be matched in loss for the constant-loss paths
 # (optsplit/analysis/level_paths.py). Measurements off; probe every 1000 steps (storage).
 suite: ts10m_level_paths
 base: ../base/tinystories_10m.yaml
@@ -27,4 +27,5 @@ runs:
                               266, 268, 270, 272, 274, 276, 278, 280, 282, 284, 286, 288, 290, 292,
                               390, 393, 396, 399, 402, 405, 408, 411, 414, 417, 420, 423, 426,
                               780, 795, 810, 825, 840, 855, 870, 885, 900, 915, 930,
-                              1800, 1850, 1900, 1950, 2000, 2050, 2100, 2150, 2200, 2250]]
+                              1800, 1850, 1900, 1950, 2000, 2050, 2100, 2150, 2200, 2250,
+                              7200, 7300, 7400, 7500, 7600, 7700, 7800]]

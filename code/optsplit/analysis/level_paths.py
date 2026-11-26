@@ -109,14 +109,15 @@ class Objective:
 
 
 def setup(cfg, n_seqs, device, chunk=64):
-    """Model and the path set and held-out set (n_seqs training sequences each, in chunks)."""
+    """Model; the path set and the held-out set (n_seqs training sequences each, in chunks); the probe's training
+    sequences, on which the training loss of Fig. 1 is measured."""
     from optsplit.data import build_data
     data = build_data(cfg, device)
     model = build_model(cfg, vocab_size=data.vocab_size).to(device).eval()
     sets = []
-    for seed in (PATH_SEED, HELDOUT_SEED):
-        x, y = data.fixed_batch('train', n_seqs, seed)
-        sets.append([(x[i:i + chunk], y[i:i + chunk]) for i in range(0, n_seqs, chunk)])
+    for n, seed in ((n_seqs, PATH_SEED), (n_seqs, HELDOUT_SEED), (cfg.probe.train_seqs, 0)):
+        x, y = data.fixed_batch('train', n, seed)
+        sets.append([(x[i:i + chunk], y[i:i + chunk]) for i in range(0, n, chunk)])
     return model, sets
 
 
@@ -211,22 +212,23 @@ def merit(X, a, b, L, c, w, tol):
     return w * float(np.sum(((L - c) / tol) ** 2)) + (len(X) + 1) * float(np.sum(lengths(X, a, b) ** 2)) / D2
 
 
-def gn_target(X, a, b, L, G, c, w, tol):
-    """Minimiser of E_w with each loss linearised at the current points (Gauss-Newton step, exact for the springs):
-    X* = X_line + M^{-1} (gamma_i g_i)_i, where M = tridiag(-1, 2, -1) and gamma solves
-    (tol^2 / (kappa w) I + M^{-1} o Gram) gamma = e, e_i = c_i - L_i + g_i . (X_i - X_line_i), kappa = D^2 / (N+1).
-    At a fixed point the spring force on each point is parallel to its gradient (a discrete geodesic of the level
-    set when w is large)."""
+def lm_target(X, a, b, L, G, c, w, tol, lam):
+    """Minimiser of E_w with each loss linearised at the current points, plus the damping (lam / kappa) |X' - X|^2
+    (a Levenberg-Marquardt step; exact for the springs). With Z = X - X_line, M = tridiag(-1, 2, -1) and
+    M_lam = M + lam I: X' = X_line + M_lam^{-1} (lam Z + (gamma_i g_i)_i), where gamma solves
+    (tol^2 / (kappa w) I + M_lam^{-1} o Gram) gamma = e - lam rowsum(M_lam^{-1} o H), H_ij = g_i . Z_j,
+    e_i = c_i - L_i + g_i . Z_i, kappa = D^2 / (N+1). lam = 0 is the Gauss-Newton step. At a fixed point the spring
+    force on each point is parallel to its gradient (a discrete geodesic of the level set when w is large)."""
     n = len(X)
     Xl = straight(a, b, n)
-    M = 2 * np.eye(n) - np.eye(n, k=1) - np.eye(n, k=-1)
-    Minv = np.linalg.inv(M)
-    gram = dots(G, G)
-    e = np.asarray(c) - np.asarray(L) + np.diag(dots(X - Xl, G))
+    Z = X - Xl
+    Minv = np.linalg.inv(2 * np.eye(n) - np.eye(n, k=1) - np.eye(n, k=-1) + lam * np.eye(n))
+    gram, H = dots(G, G), dots(G, Z)
+    e = np.asarray(c) - np.asarray(L) + np.diag(H)
     kappa = float((a - b).double().norm() ** 2) / (n + 1)
-    gamma = np.linalg.solve(tol ** 2 / (kappa * w) * np.eye(n) + Minv * gram, e)
-    coef = torch.tensor(Minv * gamma[None, :], dtype=X.dtype, device=X.device)  # coef[i, j] = Minv_ij gamma_j
-    return Xl + coef @ G
+    gamma = np.linalg.solve(tol ** 2 / (kappa * w) * np.eye(n) + Minv * gram, e - lam * (Minv * H).sum(1))
+    t = lambda A: torch.tensor(A, dtype=X.dtype, device=X.device)
+    return Xl + t(lam * Minv) @ Z + t(Minv * gamma[None, :]) @ G
 
 
 def evaluate(obj, X):
@@ -252,8 +254,8 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
                        js_steps=None if J is None else J.tolist(), js_ends=ends, pred_length=plen, pred_ratio=pratio)
 
 
-def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, ws=(1e-2, 1e-1, 1, 10, 100),
-         iters=10, tol=0.02, rounds=4, round_iters=10, m=8, max_points=60, trust=1.0, init=None, log=print):
+def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, ws=(1e-4, 1e-3, 1e-2, 1e-1, 1, 10),
+         iters=20, tol=0.02, rounds=4, round_iters=10, m=8, max_points=60, init=None, log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring). `obj` drives the iterations,
     `obj_check` (default obj, with ca_check/cb_check) the dense check. Returns (points, result dict)."""
     obj_check = obj_check or obj
@@ -263,33 +265,45 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     X = straight(a, b, n) if init is None else init.clone()
     hist, t0 = [], time.time()
 
-    def run_stage(X, w, k):
+    lam = [1.0]  # Levenberg-Marquardt damping, adapted: /3 after an accepted step, x4 after a rejected one
+
+    def run_stage(X, w, k, ramp=0):
+        """k iterations at weight w. With ramp > 0 the targets start at the current losses and reach c_i linearly
+        over the first `ramp` iterations (a continuation, so that each step's linearisation stays accurate)."""
         n = len(X)
-        c = targets(ca, cb, n)
+        c_end = targets(ca, cb, n)
         L, G = evaluate(obj, X)
-        for _ in range(k):
+        L0 = L.copy()
+        for j in range(k):
+            s = min(1.0, (j + 1) / ramp) if ramp else 1.0
+            c = c_end + (1 - s) * (L0 - c_end)
             E = merit(X, a, b, L, c, w, tol)
-            step = gn_target(X, a, b, L, G, c, w, tol) - X
-            alpha = min(1.0, trust * D / (n + 1) / float(step.norm(dim=1).max().clamp_min(1e-30)))
-            for _ in range(6):
-                Xn = X + alpha * step
-                Ln, Gn = evaluate(obj, Xn)
+            for _ in range(12):
+                Xn = lm_target(X, a, b, L, G, c, w, tol, lam[0])
+                Ln = np.array([obj.loss(x) for x in Xn])
                 En = merit(Xn, a, b, Ln, c, w, tol)
-                if En <= E or alpha < 1e-3:
+                if En < E:
+                    lam[0] = max(lam[0] / 3, 1e-6)
                     break
-                alpha /= 2
-            X, L, G = Xn, Ln, Gn
+                lam[0] = min(lam[0] * 4, 1e9)
+            else:
+                if s == 1:
+                    break  # no step lowers E_w: converged at this w
+                continue
+            X = Xn
+            L, G = evaluate(obj, X)
             seg = lengths(X, a, b)
-            hist.append(dict(n=n, w=w, alpha=alpha, E=En, max_r=float(np.abs(L - c).max()),
+            hist.append(dict(n=n, w=w, s=s, lam=lam[0], E=En, max_r=float(np.abs(L - c_end).max()),
                              ratio=float(seg.sum() / D), time=time.time() - t0))
-            log(f"n={n} w={w:g} alpha={alpha:.3g} E={En:.4g} max|L-c|={hist[-1]['max_r']:.4f} "
+            log(f"n={n} w={w:g} s={s:.2f} lam={lam[0]:.3g} E={En:.4g} max|L-c|={hist[-1]['max_r']:.4f} "
                 f"ratio={hist[-1]['ratio']:.5f} ({hist[-1]['time']:.0f}s)")
         return X
 
     stages = []
     for w in ws:
-        X = run_stage(X, w, iters)
-        stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+        X = run_stage(X, w, iters, ramp=iters // 2)
+        if hist:
+            stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
     def summary(X, worst, dense):
         seg = lengths(X, a, b)
         _, Jv, ends = walk(obj_check, [a, *X, b])
@@ -316,11 +330,11 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 new.append(P[k])
             if k in bad:
                 new.append((P[k] + P[k + 1]) / 2)
-        X = run_stage(torch.stack(new), ws[-1], round_iters)
+        X = run_stage(torch.stack(new), ws[-1], round_iters, ramp=round_iters // 2)
     valid = summary(X, worst, dense)  # after the insertions
     res = dict(**valid, fixed=fixed, valid=valid, distance=D, seg=lengths(X, a, b).tolist(), tol=tol, c_a=ca_check,
                c_b=cb_check, dense=dense, history=hist, checks=checks, stages=stages,
-               settings=dict(n=n, ws=list(ws), iters=iters, rounds=rounds, round_iters=round_iters, m=m, trust=trust))
+               settings=dict(n=n, ws=list(ws), iters=iters, rounds=rounds, round_iters=round_iters, m=m))
     return X, res
 
 
@@ -335,7 +349,7 @@ def _setup_from(spec, args):
 
 def cmd_losses(args):
     runs = load_runs(args.runs)
-    model, (path_set, _) = setup(runs[0].cfg, args.n_seqs, args.device)
+    model, (path_set, _, _) = setup(runs[0].cfg, args.n_seqs, args.device)
     obj = Objective(model, path_set)
     out = {}
     for r in runs:
@@ -364,7 +378,7 @@ def scale_free(model, a, b, init):
 
 
 def do_profile(model, sets, sa_, sb_, args, out):
-    path_set, held = sets
+    path_set, held, probe = sets
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     init = load_theta(sa_.rsplit(':', 1)[0] + ':0', args.device)
     obj = Objective(model, path_set)
@@ -373,6 +387,7 @@ def do_profile(model, sets, sa_, sb_, args, out):
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, se_mean=float(la.std() / math.sqrt(len(la))),
                se_pair=float((la - lb).std() / math.sqrt(len(la))),
                heldout=[Objective(model, held).loss(x) for x in (a, b)],
+               probe=[Objective(model, probe).loss(x) for x in (a, b)],
                from_init=[float((a - init).norm()), float((b - init).norm())],
                rel_distance=scale_free(model, a, b, init))
     print(f"{sa_} vs {sb_}: c {res['c_a']:.4f} -> {res['c_b']:.4f}, rise {res['rise']:.4f}, "
@@ -383,7 +398,7 @@ def do_profile(model, sets, sa_, sb_, args, out):
 
 
 def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=1, points_out=None):
-    path_set, held = sets
+    path_set, held, _ = sets
     n = n or args.n
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     fast, exact, hold = Objective(model, path_set, fp32=False), Objective(model, path_set), Objective(model, held)
@@ -396,7 +411,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     print(f'band {sa_} -> {sb_}, N={n}, perturb={perturb}', flush=True)
     X, res = band(fast, a, b, ca, cb, obj_check=exact, ca_check=exact.loss(a), cb_check=exact.loss(b), n=n,
                   ws=args.ws, iters=args.iters, tol=args.tol, rounds=args.rounds, round_iters=args.round_iters,
-                  m=args.m, trust=args.trust, init=init, log=lambda s: print(s, flush=True))
+                  m=args.m, init=init, log=lambda s: print(s, flush=True))
     hl = np.array([hold.loss(x) for x in [a, *X, b]])
     hc = hl[0] + (hl[-1] - hl[0]) * np.linspace(0, 1, len(hl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, heldout=hl.tolist(), perturb=perturb, perturb_seed=perturb_seed,
@@ -478,13 +493,12 @@ def cmd_band(args):
 
 def band_args(s):
     s.add_argument('--n', type=int, default=10)
-    s.add_argument('--ws', type=float, nargs='+', default=[1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 10])
-    s.add_argument('--iters', type=int, default=10)
+    s.add_argument('--ws', type=float, nargs='+', default=[1e-4, 1e-3, 1e-2, 1e-1, 1, 10])
+    s.add_argument('--iters', type=int, default=20)
     s.add_argument('--tol', type=float, default=0.02)
     s.add_argument('--rounds', type=int, default=4)
     s.add_argument('--round-iters', type=int, default=10)
     s.add_argument('--m', type=int, default=8)
-    s.add_argument('--trust', type=float, default=1.0)
     s.add_argument('--points', type=int, default=51)
 
 

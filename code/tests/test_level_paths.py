@@ -24,7 +24,7 @@ class Toy:
         x = x.detach().clone().requires_grad_(True)
         l = self.f(x)
         l.backward()
-        return float(l), x.grad
+        return float(l.detach()), x.grad
 
 
 def quiet(_):
@@ -58,28 +58,31 @@ def test_band_follows_a_circular_level_set(sign):
 
 
 def test_band_respects_the_constraint_on_a_tiny_gpt():
-    """Two tiny GPTs trained from different initializations (so the straight line between them rises): every point
-    and every segment stays within tol of c_i, which is interpolated between the two endpoint losses."""
+    """Two tiny GPTs trained from one initialization on two data orders (the straight line between them rises by
+    about 0.3): every point and every segment of the band stays within tol of c_i, which is interpolated between the
+    two endpoint losses, and the band is longer than the straight line."""
     cfg = load_config(None, {'task': 'gpt', 'model': {'block_size': 8, 'n_layer': 1, 'n_head': 2, 'n_embd': 8}})
-    seqs = torch.randint(0, 11, (32, 9), generator=torch.Generator().manual_seed(1))
-    batches = [(seqs[:16, :-1], seqs[:16, 1:]), (seqs[16:, :-1], seqs[16:, 1:])]
+    seqs = torch.randint(0, 11, (64, 9), generator=torch.Generator().manual_seed(1))
+    batches = [(seqs[i:i + 16, :-1], seqs[i:i + 16, 1:]) for i in range(0, 64, 16)]
 
-    def trained(seed, steps):
-        torch.manual_seed(seed)
+    def trained(order):
+        torch.manual_seed(0)
         m = build_model(cfg, vocab_size=11)
-        opt = torch.optim.Adam(m.parameters(), lr=0.02)
-        for i in range(steps):
-            m.loss(*batches[i % 2]).backward()
+        opt = torch.optim.Adam(m.parameters(), lr=0.01)
+        gen = torch.Generator().manual_seed(order)
+        for _ in range(300):
+            i = torch.randint(0, 64, (8,), generator=gen)
+            m.loss(seqs[i, :-1], seqs[i, 1:]).backward()
             opt.step()
             opt.zero_grad()
         return torch.cat([p.detach().reshape(-1) for p in m.parameters()])
 
-    a, b = trained(0, 100), trained(1, 110)
+    a, b = trained(1), trained(2)
     obj = Objective(build_model(cfg, vocab_size=11), batches)
     ca, cb = obj.loss(a), obj.loss(b)
-    assert profile(obj, a, b)['rise'] > 0.1
+    assert profile(obj, a, b)['rise'] > 0.2
     X, res = band(obj, a, b, ca, cb, n=10, tol=0.01, log=quiet)
     assert res['ok'] and res['max_dev'] <= 0.01
     c = ca + (cb - ca) * np.arange(1, len(X) + 1) / (len(X) + 1)
     assert np.abs(np.array([obj.loss(x) for x in X]) - c).max() <= 0.01
-    assert res['ratio'] >= 1
+    assert res['ratio'] > 1.01
