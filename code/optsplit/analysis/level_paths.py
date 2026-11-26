@@ -60,6 +60,11 @@ class Stream:
 
     def __init__(self, data, n, chunk, seed):
         self.data, self.n, self.chunk, self.seed = data, n, chunk, seed
+        f = getattr(getattr(data, 'splits', {}).get('train'), 'filename', None)
+        if f:  # read the training tokens once, so that the random windows come from the page cache, not the network
+            with open(f, 'rb') as fh:
+                while fh.read(1 << 26):
+                    pass
 
     def __len__(self):
         return 2 ** 31
@@ -346,8 +351,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         times the discrete Laplacian of the path minus its component along the point's loss gradient (curve
         shortening within the level set; it also evens out the spacing). Both step sizes warm up over the first 10%
         of the steps and then decay linearly to 0, over the last 30% of the k steps or, earlier, over the next
-        quarter of the steps taken so far, once the max |L - c| at the points on the check set is below 2 tol or has
-        improved by less than 2% (and the path length by less than 5% of its excess) over the last 200 steps."""
+        quarter of the steps taken so far, once the max |L - c| at the points on the check set (the better of two
+        checks 50 steps apart, against occasional spikes) is below 2 tol or has improved by less than 2% over 200
+        steps. Adam's betas are training's (0.9, 0.95)."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
         warm, stop, decay, chk = 0.1 * k, int(0.7 * k), k - int(0.7 * k), []
         t = 0
@@ -357,20 +363,20 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             L, G = evaluate(obj_string, X)
             g = torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G
             mom.lerp_(g, 0.1)
-            sq.lerp_(g * g, 0.01)
+            sq.lerp_(g * g, 0.05)
             f = min(1.0, t / warm) if t <= stop else max(0.0, 1 - (t - stop) / decay)
             P = torch.cat([a[None], X, b[None]])
             lap = P[:-2] + P[2:] - 2 * X
             u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
             lap -= (lap * u).sum(1, keepdim=True) * u
-            X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.99 ** t)).sqrt() + 1e-8) + f * beta * lap
+            X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.95 ** t)).sqrt() + 1e-8) + f * beta * lap
             del P, lap, u, G
             if t <= stop and t % 50 == 0 and t > warm:  # early stop: at the level, or flat over the last 200 steps
-                dev = check_dev(X)
-                chk.append((dev, float(lengths(X, a, b).sum() / D)))
-                log(f"string n={len(X)} t={t}: max|L-c| at the points {dev:.4f} (check set), ratio {chk[-1][1]:.5f}")
-                (d0, r0), (d1, r1) = chk[max(0, len(chk) - 5)], chk[-1]
-                flat = len(chk) >= 5 and d0 - d1 < max(0.003, 0.02 * d0) and abs(r1 - r0) < max(2e-5, 0.05 * (r0 - 1))
+                chk.append(check_dev(X))
+                log(f"string n={len(X)} t={t}: max|L-c| at the points {chk[-1]:.4f} (check set), "
+                    f"ratio {float(lengths(X, a, b).sum() / D):.5f}")
+                d1 = min(chk[-2:])
+                flat = len(chk) >= 6 and min(chk[-6:-4]) - d1 < max(0.003, 0.02 * min(chk[-6:-4]))
                 if flat or d1 <= 2 * tol:
                     stop, decay = t, max(20, t // 4)
                     log(f"string: {'flat' if flat else 'at the level'}, decaying over {decay} steps")
@@ -1051,7 +1057,7 @@ def band_args(s):
     s.add_argument('--lr', type=float, default=2e-3, help='Adam step of the string method')
     s.add_argument('--beta', type=float, default=0.05, help='curve-shortening step of the string method')
     s.add_argument('--batch-seqs', type=int, default=128, help='sequences per string-method step')
-    s.add_argument('--ws', type=float, nargs='+', default=[1, 10], help='weights of the Levenberg-Marquardt stages')
+    s.add_argument('--ws', type=float, nargs='+', default=[10], help='weights of the Levenberg-Marquardt stages')
     s.add_argument('--iters', type=int, default=10, help='Levenberg-Marquardt iterations per stage')
     s.add_argument('--tol', type=float, default=0.02)
     s.add_argument('--rounds', type=int, default=4)
