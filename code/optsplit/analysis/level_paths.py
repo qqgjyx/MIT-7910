@@ -493,15 +493,16 @@ def level_walk(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, 
 
 def claim(out):
     """True if this job may compute `out`: it does not exist and no other running Slurm job holds its lock (so that
-    several jobs can share the list of outputs; a requeued job keeps its id and takes its own lock back)."""
+    several jobs can share the list of outputs; a requeued job keeps its id and takes its own lock back; a pending,
+    e.g. preempted, job holds no lock)."""
     out = Path(out)
     if out.exists():
         return False
     lock, me = out.with_suffix('.lock'), os.environ.get('SLURM_JOB_ID', 'local')
     if lock.exists():
         other = lock.read_text().strip()
-        if other != me and other != 'local' and subprocess.run(['squeue', '-h', '-j', other], capture_output=True,
-                                                                text=True).stdout.strip():
+        if other != me and other != 'local' and subprocess.run(['squeue', '-h', '-t', 'R', '-j', other],
+                                                                capture_output=True, text=True).stdout.strip():
             return False
     out.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(me)
