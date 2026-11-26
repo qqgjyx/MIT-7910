@@ -147,7 +147,7 @@ def main():
         lines.append(f'{r["method"]:<22} {r["products"]:>8} {1e3 * r["time"]:>8.0f} {r["err_median"]:>8.3f} '
                      f'{r["err_max"]:>8.3f} ' + ' '.join(f'{cell(r["val"], d, ".4f"):>7}' for d in ORDERS)
                      + f' {mean(r["val"]):>7} ' + ' '.join(f'{cell(r["step"], d, ".0f"):>7}' for d in ORDERS) + ' '
-                     + ' '.join(f'{cell(r["gpu_min"], d, ".1f"):>6}' for d in ORDERS))
+                     + ' '.join(f'{cell(r["gpu_min"], d, ".1f").replace("nan", "never"):>6}' for d in ORDERS))
     tag = '' if args.loss == 'mse' else f'_{args.loss}'
     (out / f'two_track{tag}.txt').write_text('\n'.join(lines) + '\n')
     (out / f'two_track{tag}.json').write_text(json.dumps(rows, indent=1))
