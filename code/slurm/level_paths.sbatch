@@ -8,9 +8,11 @@
 #SBATCH --signal=B:TERM@120
 # Constant-loss paths (results/level_paths.tex), on one GPU. Outputs that exist are skipped and those another running
 # job is computing are left to it (lock files), so several jobs can share the work and a job can be resubmitted:
-#   1. the ts10m_level_paths reruns (configs written by launch.py --dry-run), in the background;
+#   1. with TRAIN=1 (sbatch --export=ALL,TRAIN=1 --gres=gpu:l40s:1: training runs on L40S, like ts10m_main), the
+#      ts10m_level_paths reruns (configs written by launch.py --dry-run), in the background;
 #   2. meanwhile, the late level on the ts10m_main checkpoints (select_main.json);
-#   3. losses of the rerun checkpoints, the levels, and the unselected rerun checkpoints are deleted;
+#   3. once the reruns are done (a job without TRAIN=1 stops here if they are not): losses of the rerun checkpoints,
+#      the levels, and the unselected rerun checkpoints are deleted;
 #   4. profiles and bands at every level, bent initial bands for one pair, the level-set walks.
 # From the code directory: sbatch --exclude node4207,node2809,node2810 -o <log> slurm/level_paths.sbatch
 source "${OPTSPLIT_CODE:-$SLURM_SUBMIT_DIR}/slurm/env.sh"
@@ -24,6 +26,10 @@ LEVELS="1440 3300 680 397 272 10000"
 MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
 if [ "$MEM" -lt 40000 ]; then PAR=1; CHUNK=32; else PAR=4; CHUNK=64; fi  # small GPUs: one training run at a time
 LP="python -m optsplit.analysis.level_paths --chunk $CHUNK"
+TRAIN=${TRAIN:-0}
+if [ "$TRAIN" = 1 ] && ! nvidia-smi --query-gpu=name --format=csv,noheader | grep -q L40S; then
+    echo "training runs only on L40S"; TRAIN=0
+fi
 # near the time limit or on preemption: stop the children (training saves latest.pt) and requeue
 trap 'trap "" TERM; kill -TERM 0; wait; scontrol requeue $SLURM_JOB_ID 2>/dev/null; exit 0' TERM
 fg() { "$@" & wait $!; }  # a foreground command that the trap can interrupt
@@ -33,6 +39,7 @@ mine() {  # take the lock of $1 unless another running job holds it
     echo $SLURM_JOB_ID > "$1"
 }
 train() {  # the reruns that no other running job is training, $PAR at a time
+    [ "$TRAIN" = 1 ] || return 0
     for r in adamw_d0 adamw_d1 muon_d0 muon_d1; do
         [ -e $R/$r/done ] || ! mine $R/$r/train.lock || echo $R/$r/config.yaml
     done | xargs -r -P $PAR -I{} sh -c 'python -m optsplit.train {} >> $(dirname {})/train.out 2>&1'
@@ -42,8 +49,13 @@ all_done() { for r in adamw_d0 adamw_d1 muon_d0 muon_d1; do [ -e $R/$r/done ] ||
 train &
 fg $LP run $A/select_main.json --out-dir $A/main --band-n 10
 fg $LP run $A/select_main.json --out-dir $A/main --band-n 20
+fg $LP run $A/select_main.json --out-dir $A/main --band-n --walk
 wait
-until all_done; do fg sleep 120; fg train; done  # another job may be training them
+if [ "$TRAIN" = 1 ]; then
+    until all_done; do fg sleep 120; fg train; done  # another job may be training them
+elif ! all_done; then
+    echo "reruns not done"; exit 0
+fi
 
 if [ ! -e $A/select.json ] && mine $A/select.lock; then
     [ -e $A/losses_rerun.json ] || fg $LP losses 'ts10m_level_paths/*' --out $A/losses_rerun.json
