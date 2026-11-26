@@ -705,12 +705,12 @@ STYLE = {'adamw-muon_d0': dict(color='C0', label='AdamW vs Muon, same data order
          'muon_d0-d1': dict(color='0.6', label='Muon, two data orders')}
 
 
-def collect(out_dir):
-    """{pair: [record per level]} from the profiles and bands of out_dir; the level's x is the mean training loss of
+def collect(out_dirs):
+    """{pair: [record per level]} from the profiles and bands of out_dirs; the level's x is the mean training loss of
     the endpoints on the probe (the training loss of Fig. 1)."""
-    out = Path(out_dir)
     recs = {}
-    for f in sorted((out / 'profile').glob('*.json')):
+    for f in sorted(f for d in out_dirs for f in (Path(d) / 'profile').glob('*.json')):
+        out = f.parent.parent
         level, pair = f.stem.split('_', 1)
         prof = json.loads(f.read_text())
         r = dict(level=float(level), probe=float(np.mean(prof['probe'])), prof=prof)
@@ -732,7 +732,7 @@ def cmd_plot(args):
     from optsplit.analysis.rank_metrics import loss_axis
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.labelsize': 7, 'legend.fontsize': 6,
                          'xtick.labelsize': 6, 'ytick.labelsize': 6})
-    recs = collect(args.out_dir)
+    recs = collect(args.out_dirs)
     fig, axes = plt.subplots(1, 4, figsize=(7.1, 1.75))
     for pair, rs in recs.items():
         st = STYLE[pair]
@@ -773,26 +773,26 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 
 def cmd_table(args):
-    """LaTeX rows: per level (the given ones, by index in the sorted levels, or all) and pair."""
-    recs = collect(args.out_dir)
+    """LaTeX rows: per level (the given ones, by index in the levels sorted by decreasing loss, or all) and pair. The
+    first column is the level's training loss (mean over the pairs' endpoints on the probe)."""
+    recs = collect(args.out_dirs)
     f = lambda v, d=3: '--' if v is None else f'{v:.{d}f}'
-    rows = []
-    for pair, rs in recs.items():
-        for r in rs:
-            n10, n20 = r['n10'], r['n20']
-            rows.append((r['probe'], pair, ' & '.join([
-                f"{r['probe']:.2f}", NAMES[pair], f(abs(r['prof']['c_a'] - r['prof']['c_b'])),
-                f(r['prof']['rise'], 2), f(r['prof']['dip'], 2), f(r['prof']['rel_distance']['all'], 2),
-                f(n10 and n10['fixed']['ratio'], 4), f(n20 and n20['fixed']['ratio'], 4),
-                f(n10 and n10['valid']['ratio'], 4) + (f" ({n10['valid']['n']})" if n10 else ''),
-                f(n10 and n10['valid']['max_dev']), f(r['prof']['pred_ratio'], 2),
-                f(n10 and n10['valid']['pred_ratio'], 2)]) + r' \\'))
-    keep = sorted({x for x, _, _ in rows}, reverse=True)
-    keep = [keep[i] for i in args.levels] if args.levels else keep
-    order = list(NAMES)
-    for x, _, row in sorted(rows, key=lambda t: (-t[0], order.index(t[1]))):
-        if x in keep:
-            print(row)
+    levels = sorted({r['level'] for rs in recs.values() for r in rs}, reverse=True)
+    keep = [levels[i] for i in args.levels] if args.levels else levels
+    for level in keep:
+        x = np.mean([r['probe'] for rs in recs.values() for r in rs if r['level'] == level])
+        for pair in NAMES:
+            for r in recs.get(pair, []):
+                if r['level'] != level:
+                    continue
+                n10, n20, p = r['n10'], r['n20'], r['prof']
+                print(' & '.join([
+                    f'{x:.2f}', NAMES[pair], f(abs(p['c_a'] - p['c_b'])), f(p['rise'], 2), f(abs(p['dip']), 2),
+                    f(p['rel_distance']['all'], 2), f(n10 and n10['fixed']['ratio'], 4),
+                    f(n20 and n20['fixed']['ratio'], 4),
+                    f(n10 and n10['valid']['ratio'], 4) + (f" ({n10['valid']['n']})" if n10 else ''),
+                    f(n10 and n10['valid']['max_dev']), f(p['pred_ratio'], 2),
+                    f(n10 and n10['valid']['pred_ratio'], 2)]) + r' \\')
 
 
 def cmd_profile(args):
@@ -843,10 +843,10 @@ def main():
     s.add_argument('--suite', default='ts10m_level_paths')
     s.add_argument('--out', required=True)
     s = sub.add_parser('plot')
-    s.add_argument('out_dir')
+    s.add_argument('out_dirs', nargs='+')
     s.add_argument('--out', required=True)
     s = sub.add_parser('table')
-    s.add_argument('out_dir')
+    s.add_argument('out_dirs', nargs='+')
     s.add_argument('--levels', type=int, nargs='*')
     s = sub.add_parser('prune')
     s.add_argument('select')
