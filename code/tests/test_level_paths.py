@@ -79,6 +79,19 @@ def test_shortening_removes_wander_on_a_sphere():
     assert np.abs(X.norm(dim=1).numpy() - 1).max() < 1e-3
 
 
+def test_band_resumes_from_its_stash(tmp_path):
+    """The points after the string and LM phases are saved; a second call with the same settings starts from them."""
+    obj = Toy(lambda x: 1 + (x.pow(2).sum() - 1))
+    angle = 2 * math.pi / 3
+    a = torch.tensor([1.0, 0.0], dtype=torch.float64)
+    b = torch.tensor([math.cos(angle), math.sin(angle)], dtype=torch.float64)
+    logs = []
+    X1, r1 = band(obj, a, b, 1.0, 1.0, n=10, tol=0.01, stash=tmp_path / 's.pt', log=quiet)
+    X2, r2 = band(obj, a, b, 1.0, 1.0, n=10, tol=0.01, stash=tmp_path / 's.pt', log=logs.append)
+    assert any(l.startswith('resumed') for l in logs)
+    assert torch.allclose(X1, X2) and r2['ok']
+
+
 @pytest.mark.parametrize('rotate', [False, True])
 def test_band_respects_the_constraint_on_a_tiny_gpt(rotate):
     """Two tiny GPTs trained from one initialization on two data orders (the straight line between them rises by

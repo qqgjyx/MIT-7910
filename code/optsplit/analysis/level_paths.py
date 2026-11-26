@@ -328,11 +328,12 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=1000, lr=1e-3,
          beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=300, round_iters=10, m=8, max_points=40,
-         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, log=print):
+         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
     method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`, then at most
     `shorten_steps` steps of curve shortening within the level set on `obj_shorten` (default obj); `obj_check`
-    (default obj, with ca_check/cb_check) does the dense check. Returns (points, result dict)."""
+    (default obj, with ca_check/cb_check) does the dense check. The points after the string and LM phases are saved
+    to `stash` (if given), and a later call with the same settings starts from there. Returns (points, result)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
     obj_shorten = obj_shorten or obj
@@ -398,17 +399,25 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     def shorten(X, k):
         """At most k steps of curve shortening within the level set, to remove the wander that the noise of the string
         phase leaves in the path: on a fresh group of sequences of obj_shorten (a larger batch than the string
-        phase's), each point moves by shorten_beta times the discrete Laplacian of the path minus its component along
-        the point's loss gradient, plus a Newton step back to its target loss. Stops once the length has fallen by
-        less than 1% of its excess over the last 100 steps. The check-set max |L - c| is computed every 50 steps;
-        the step is halved if it exceeds its value at the start (or tol) by more than 0.01."""
-        bs, ratios = shorten_beta, [float(lengths(X, a, b).sum() / D)]
-        ref = max(tol, check_dev(X))
-        hist.append(dict(phase='shorten', n=len(X), t=0, beta=bs, check_max_r=ref, ratio=ratios[0],
+        phase's), each point moves by beta times the discrete Laplacian of the path minus its component along its
+        loss gradient, plus a Newton step back to its target loss. beta adapts like a trust region: if the max
+        |L - c| after a step exceeds lim = max(2 tol, 1.5 x its value at the start), the step is undone and beta
+        halved; after a step that keeps it below lim / 2, beta grows by 20% (up to shorten_beta; it starts at 1/16 of
+        that). Stops once the length has fallen by less than 1% of its excess over the last 100 steps."""
+        bs, ratios, prev, lim, undone = shorten_beta / 16, [float(lengths(X, a, b).sum() / D)], None, None, 0
+        hist.append(dict(phase='shorten', n=len(X), t=0, beta=bs, check_max_r=check_dev(X), ratio=ratios[0],
                          time=time.time() - t0))
         for t in range(1, k + 1):
             c = targets(*ends(obj_shorten), len(X))
             L, G = evaluate(obj_shorten, X)
+            dev = float(np.abs(L - c).max())
+            lim = lim or max(2 * tol, 1.5 * dev)
+            if prev is not None and dev > lim:  # the last step left the level set: undo it, smaller steps
+                X, bs, undone = prev, bs / 2, undone + 1
+                L, G = evaluate(obj_shorten, X)
+            elif dev < lim / 2:
+                bs = min(bs * 1.2, shorten_beta)
+            prev = X
             P = torch.cat([a[None], X, b[None]])
             lap = P[:-2] + P[2:] - 2 * X
             gg = (G * G).sum(1, keepdim=True).clamp_min(1e-24)
@@ -416,20 +425,18 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             X = X + bs * lap - torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G / gg
             del P, lap, G, gg
             if t % 25 == 0:
-                ratios.append(float(lengths(X, a, b).sum() / D))
+                ratios.append(float(lengths(prev, a, b).sum() / D))
                 h = dict(phase='shorten', n=len(X), t=t, beta=bs, max_r=float(np.abs(L - c).max()), ratio=ratios[-1],
-                         time=time.time() - t0)
-                if t % 50 == 0:
-                    h['check_max_r'] = check_dev(X)
-                    if h['check_max_r'] > ref + 0.01:
-                        bs /= 2
+                         undone=undone, time=time.time() - t0)
+                if t % 100 == 0:
+                    h['check_max_r'] = check_dev(prev)
                 hist.append(h)
-                log(f"shorten n={len(X)} t={t}: ratio {h['ratio']:.5f}, max|L-c| {h['max_r']:.4f} (batch, before the "
-                    f"step)" + (f", {h['check_max_r']:.4f} (check set)" if 'check_max_r' in h else '') +
-                    f", beta {bs:g} ({h['time']:.0f}s)")
+                log(f"shorten n={len(X)} t={t}: ratio {h['ratio']:.5f}, max|L-c| {h['max_r']:.4f} (batch)" +
+                    (f", {h['check_max_r']:.4f} (check set)" if 'check_max_r' in h else '') +
+                    f", beta {bs:.3g}, {undone} steps undone ({h['time']:.0f}s)")
                 if len(ratios) >= 5 and ratios[-5] - ratios[-1] < max(1e-6, 0.01 * (ratios[-5] - 1)):
                     break
-        return X
+        return prev if prev is not None else X
 
     lam = [1.0]  # Levenberg-Marquardt damping, adapted: /3 after an accepted step, x4 after a rejected one
 
@@ -471,14 +478,22 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 break  # converged at this w
         return X
 
-    stages = []
-    if steps:
-        X = string(X, steps)
-        stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
-    for w in ws:
-        X = run_stage(X, w, iters, ramp=iters // 2)
-        if hist:
-            stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+    stages, first = [], dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters)
+    st = torch.load(stash, map_location=a.device) if stash is not None and Path(stash).exists() else None
+    if st is not None and st['settings'] == first:  # resume after the string and LM phases
+        X, stages = st['X'], st['stages']
+        hist.extend(st['hist'])
+        log(f'resumed after the string and LM phases from {stash}')
+    else:
+        if steps:
+            X = string(X, steps)
+            stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+        for w in ws:
+            X = run_stage(X, w, iters, ramp=iters // 2)
+            if hist:
+                stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+        if stash is not None:
+            torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
     if shorten_steps:
         X = shorten(X, shorten_steps)
         stages.append(dict(w='shorten', ratio=hist[-1]['ratio'], max_r=hist[-1].get('max_r')))
@@ -728,7 +743,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
                   obj_string=small, steps=args.steps, lr=args.lr, beta=args.beta, ws=args.ws, iters=args.iters,
                   tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
                   m=args.m, init=init, obj_shorten=mid, shorten_steps=args.shorten_steps,
-                  shorten_beta=args.shorten_beta, log=say)
+                  shorten_beta=args.shorten_beta, stash=Path(out).with_suffix('.stage.pt'), log=say)
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
@@ -739,6 +754,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
           f"(held-out set); path set max dev at the points {res['pathset_max_dev']:.4f}", flush=True)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(res, indent=1))
+    Path(out).with_suffix('.stage.pt').unlink(missing_ok=True)
     if points_out:
         torch.save(dict(a=sa_, b=sb_, offsets=(X - straight(a, b, len(X))).half().cpu()), points_out)
 
