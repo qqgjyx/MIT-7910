@@ -36,6 +36,21 @@ from optsplit.loss import log_probs, mean_loss
 from optsplit.models import build_model, layer
 
 PATH_SEED, HELDOUT_SEED = 101, 102  # fixed training sequences (the probe uses seed 0)
+STARTED, RESTART = time.time(), None  # RESTART: a worker's control file (see restart_if_asked)
+
+
+def restart_if_asked():
+    """In a worker (cmd_work): once its control file is newer than the process, re-execute the worker in place, with
+    fresh code and defaults but the same job and GPU (`touch <dir>/restart_workers` after a git pull). The task in
+    progress starts again; its lock names this pid, which the new process takes back."""
+    if RESTART is not None and RESTART.exists() and RESTART.stat().st_mtime > STARTED:
+        print(f'restart: {RESTART} is newer than this worker', flush=True)
+        os.execv(sys.executable, [sys.executable, '-m', 'optsplit.analysis.level_paths', *sys.argv[1:]])
+
+
+def say(s):
+    print(s, flush=True)
+    restart_if_asked()
 
 
 class Objective:
@@ -637,7 +652,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     X, res = band(fast, a, b, ca, cb, obj_check=held, ca_check=held.loss(a), cb_check=held.loss(b), n=n,
                   obj_string=small, steps=args.steps, lr=args.lr, beta=args.beta, ws=args.ws, iters=args.iters,
                   tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
-                  m=args.m, init=init, log=lambda s: print(s, flush=True))
+                  m=args.m, init=init, log=say)
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
@@ -659,7 +674,7 @@ def do_walk(model, sets, sa_, sb_, args, out):
     print(f'walk {sa_} -> {sb_}, mu={args.mu}', flush=True)
     X, res = level_walk(fast, a, b, fast.loss(a), fast.loss(b), obj_check=held, ca_check=held.loss(a),
                         cb_check=held.loss(b), steps=args.walk_steps, mu=args.mu, cg_iters=args.cg_iters, tol=args.tol,
-                        m=args.m, log=lambda s: print(s, flush=True))
+                        m=args.m, log=say)
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs)
     print(f"walk: ratio {res['ratio']:.5f}, reached {res['reached']}, pred {res['pred_ratio']:.4f}, "
           f"max dev {res['max_dev']:.4f}", flush=True)
@@ -804,10 +819,12 @@ def cmd_work(args):
     """One worker: repeatedly takes the first task of task_list (tiers <= --max-tier) that nobody holds and does it.
     While select.json is missing, waits (checking every minute that the reruns or the selection are progressing).
     Writes tier1_done when every tier-1 output exists. Exit 0: nothing left to take; 3: the reruns are not ready
-    and nothing is making them."""
+    and nothing is making them. Restarts itself in place when asked (restart_if_asked)."""
+    global RESTART
     A = Path(args.dir)
-    model = sets = None
+    RESTART, model, sets = A / 'restart_workers', None, None
     while True:
+        restart_if_asked()
         T = [t for t in task_list(A, args) if t[0] <= args.max_tier]
         for t in T:
             f = task_out(t, args)
