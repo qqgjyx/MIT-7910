@@ -1,0 +1,83 @@
+%% Appendix of smoothed_muon_ce.tex, \input right after \appendix.
+\crefalias{section}{appendix}\crefalias{subsection}{appendix}
+\section{Hyperparameters}
+\label{app:hparams}
+
+\begin{center}\small
+\captionsetup{type=table}
+\caption{Hyperparameters shared by the AdamW, Muon and smoothed-Muon runs.}
+\label{tab:app-shared}
+\begin{tabular}{@{}lp{0.74\linewidth}@{}}
+\hline
+Runs & AdamW and Muon $\times$ data orders d0--d4, smoothed Muon $\times$ d0--d2 (13). The AdamW and Muon runs are those of the CE
+  checkpoint. As there, Step 2 uses a second set of AdamW and Muon runs on d0--d2, identical but for the saved
+  checkpoints (\cref{app:metrics}); the smoothed-Muon runs serve both steps \\
+\hline
+Model & nanoGPT, pre-LayerNorm blocks \\
+Layers, heads, width & 6, 6, 384 \\
+MLP & GELU, width 1536 \\
+Biases, dropout & none, none \\
+Output head & untied \\
+Attention projections & separate query, key, value \\
+Context & 256 tokens \\
+Parameters & 13.9M (10.6M without token and position embeddings and head) \\
+\hline
+Data & TinyStories (GPT-4 version) \\
+Tokenizer & byte-level BPE, 4096 tokens, trained on the training split \\
+Batch & 128 windows $\times$ 256 tokens \\
+Window offsets & from the training split; generator seeded with (data order, step), same for every optimizer \\
+\hline
+Loss & cross-entropy of the next token \\
+Steps & 10{,}000 \\
+Tokens & 328M (about 0.6 epochs) \\
+Learning rate & $\eta\,\varphi(t)$ at step $t$, every parameter group \\
+Warmup & linear, $\varphi(t)=(t+1)/200$ for $t<200$ \\
+Decay & cosine to $\varphi=0.1$ at step 10{,}000 \\
+Gradient clipping & none \\
+\hline
+Initialization seed & 0, all runs \\
+Training precision & bfloat16 autocast \\
+Prediction, Hessian precision & float32, no autocast (TF32 matrix products allowed) \\
+\hline
+Logged predictions & next-token distributions: 128 fixed validation sequences $\times$ 16 evenly spaced positions
+  (2{,}048), as float16 log-probabilities \\
+Training loss & 64 fixed training sequences, all positions; used to match runs at equal loss \\
+Floor & mean JS between two data orders of one optimizer, at equal step or equal training loss \\
+Both logged at & every 250th step $+$ 30 log-spaced steps in $[1, 10{,}000]$ \\
+\hline
+Hessian & top eigenvalue, 20 Lanczos iterations, 32 fixed training sequences \\
+Measured at & every 500th step $+$ 30 log-spaced steps \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{center}\small
+\captionsetup{type=table}
+\caption{Optimizer-specific hyperparameters. $n_{\rm out}$, $n_{\rm in}$: output and input size of the matrix.
+Smoothed Muon differs from Muon in the rows ``Step'' and $\eta$ only.}
+\label{tab:app-optim}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.15\linewidth}p{0.25\linewidth}p{0.27\linewidth}p{0.27\linewidth}@{}}
+\hline
+ & AdamW & Muon & Smoothed Muon \tabularnewline
+\hline
+$\eta$ & $2\cdot10^{-3}$ & 0.01 & 0.01 \tabularnewline
+$\eta$ choice & \raggedright best final validation loss of a 5-rate sweep on d0 & as AdamW &
+  Muon's \tabularnewline
+Update $O_t$ & bias-corrected moments & \raggedright Nesterov momentum; 5 quintic Newton--Schulz steps in bfloat16 &
+  as Muon \tabularnewline
+Step & $-\eta\,O_t$ & $-\eta\,O_t$ & \raggedright $-\eta\,U_t/(1-(1-a)^t)$, $U_t=(1-a)U_{t-1}+aO_t$, $a=0.65$
+  \tabularnewline
+Momentum & $\beta=(0.9,0.95)$ & $\beta=0.95$ & as Muon \tabularnewline
+$\epsilon$ & $10^{-8}$ & -- & -- \tabularnewline
+Update scale & -- & $\sqrt{\max(1,n_{\rm out}/n_{\rm in})}$ & as Muon \tabularnewline
+Weight decay & \raggedright 0.1, decoupled; none on LayerNorm gains & none & none \tabularnewline
+Parameters & all & \raggedright query, key, value, attention-output and both MLP matrices of every block & as Muon
+  \tabularnewline
+\hline
+Aux.\ AdamW & -- & embeddings, head, LayerNorm gains & as Muon \tabularnewline
+Aux.\ $\eta$, $\beta$, $\epsilon$ & -- & $2\cdot10^{-3}$, $(0.9,0.95)$, $10^{-8}$ & as Muon \tabularnewline
+Aux.\ weight decay & -- & none & none \tabularnewline
+\hline
+\end{tabular}
+\end{center}
