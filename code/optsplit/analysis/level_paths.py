@@ -454,12 +454,31 @@ def cmd_select(args):
     Path(args.out).write_text(json.dumps(out, indent=1))
 
 
+def cmd_prune(args):
+    """Delete the checkpoints of the rerun suite that no level selected (keeps step 0, the last step and the picks)."""
+    sel = json.loads(Path(args.select).read_text())
+    keep = {}
+    for level in sel.values():
+        for spec, _ in level['pick'].values():
+            run, step = spec.rsplit(':', 1)
+            keep.setdefault(run, set()).add(int(step))
+    for run, steps in keep.items():
+        r = Run(run)
+        assert r.id.startswith('ts10m_level_paths/'), f'prune only touches ts10m_level_paths, not {r.id}'
+        last = r.cfg.train.max_steps
+        for s in r.ckpt_steps:
+            if s not in steps | {0, last}:
+                r.ckpt_path(s).unlink()
+        print(f'{run}: kept {sorted(steps | {0, last})}')
+
+
 def cmd_run(args):
-    """Profiles and bands for the selected pairs (skips outputs that exist)."""
+    """Profiles and bands for the selected pairs (skips outputs that exist). A level '#i' is the i-th level."""
     sel = json.loads(Path(args.select).read_text())
     out = Path(args.out_dir)
     model = sets = None
-    for level in args.levels or sel:
+    levels = [list(sel)[int(l[1:])] if l.startswith('#') else l for l in args.levels or sel]
+    for level in levels:
         for pair in args.pairs or PAIRS:
             sa_, sb_, _ = sel[level]['pairs'][pair]
             if model is None:
@@ -516,6 +535,8 @@ def main():
     s.add_argument('--levels', nargs='+', required=True)
     s.add_argument('--suite', default='ts10m_level_paths')
     s.add_argument('--out', required=True)
+    s = sub.add_parser('prune')
+    s.add_argument('select')
     s = sub.add_parser('profile')
     s.add_argument('a')
     s.add_argument('b')
@@ -542,7 +563,7 @@ def main():
     band_args(s)
     args = p.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
-    {'losses': cmd_losses, 'select': cmd_select, 'profile': cmd_profile, 'band': cmd_band,
+    {'losses': cmd_losses, 'select': cmd_select, 'prune': cmd_prune, 'profile': cmd_profile, 'band': cmd_band,
      'run': cmd_run}[args.cmd](args)
 
 
