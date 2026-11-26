@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from optsplit.analysis.level_paths import Objective, band, profile, straight
+from optsplit.analysis.level_paths import Objective, band, level_walk, profile, straight
 from optsplit.config import load_config
 from optsplit.models import build_model
 
@@ -25,6 +25,9 @@ class Toy:
         l = self.f(x)
         l.backward()
         return float(l.detach()), x.grad
+
+    def hvp(self, x, v):
+        return torch.autograd.functional.hvp(self.f, x, v)[1]
 
 
 def quiet(_):
@@ -86,3 +89,13 @@ def test_band_respects_the_constraint_on_a_tiny_gpt():
     c = ca + (cb - ca) * np.arange(1, len(X) + 1) / (len(X) + 1)
     assert np.abs(np.array([obj.loss(x) for x in X]) - c).max() <= 0.01
     assert res['ratio'] > 1.01
+
+
+def test_level_walk_follows_a_circular_level_set():
+    obj = Toy(lambda x: x.pow(2).sum())
+    angle = 2 * math.pi / 3
+    a = torch.tensor([1.0, 0.0], dtype=torch.float64)
+    b = torch.tensor([math.cos(angle), math.sin(angle)], dtype=torch.float64)
+    X, res = level_walk(obj, a, b, 1.0, 1.0, steps=40, tol=0.01, log=quiet)
+    assert res['reached'] and res['ok']
+    assert res['ratio'] == pytest.approx(angle / (2 * math.sin(angle / 2)), rel=0.01)

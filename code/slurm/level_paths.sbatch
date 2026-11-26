@@ -54,3 +54,4 @@ until [ -e $A/select.json ]; do fg sleep 60; done
 fg $LP run $A/select.json --out-dir $A/rerun --band-n 10
 fg $LP run $A/select.json --out-dir $A/rerun --band-n 20
 fg $LP run $A/select.json --out-dir $A/rerun --band-n --pairs adamw-muon_d0 --levels '#0' --perturb 0.1 --perturb-seeds 1 2
+fg $LP run $A/select.json --out-dir $A/rerun --band-n --walk

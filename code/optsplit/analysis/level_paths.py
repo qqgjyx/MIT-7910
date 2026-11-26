@@ -74,6 +74,19 @@ class Objective:
                 total += l.item()
         return total, torch.cat([p.grad.reshape(-1) for p in self.params])
 
+    def hvp(self, theta, v, n_batches=2):
+        """Hessian-vector product of the loss on the first n_batches batches (a cheaper estimate of the curvature)."""
+        from optsplit.models import double_backward_ok
+        self._load(theta)
+        vs = list(v.split([p.numel() for p in self.params]))
+        out = torch.zeros_like(v)
+        with self._precision(), double_backward_ok():
+            for x, y in self.batches[:n_batches]:
+                g = torch.autograd.grad(self.model.loss(x, y) / n_batches, self.params, create_graph=True)
+                hv = torch.autograd.grad(sum((gi * vi.view_as(gi)).sum() for gi, vi in zip(g, vs)), self.params)
+                out += torch.cat([h.reshape(-1) for h in hv])
+        return out
+
     @torch.no_grad()
     def walk(self, thetas):
         """Loss at each parameter vector of the sequence `thetas`, the Jensen-Shannon divergence (bits, mean over
@@ -340,6 +353,74 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     return X, res
 
 
+# ---------------------------------------------------------------- level-set walk (second estimate)
+
+def cg(A, v, iters):
+    """Conjugate gradients for A x = v from x = 0; stops at negative curvature (returns the iterate so far)."""
+    x, r = torch.zeros_like(v), v.clone()
+    p, rr = r.clone(), float(r @ r)
+    for _ in range(iters):
+        Ap = A(p)
+        pAp = float(p @ Ap)
+        if pAp <= 0:
+            break
+        alpha = rr / pAp
+        x += alpha * p
+        r -= alpha * Ap
+        rr_new = float(r @ r)
+        if rr_new < 1e-12 * float(v @ v):
+            break
+        p, rr = r + (rr_new / rr) * p, rr_new
+    return x if float(x @ x) > 0 else v
+
+
+def level_walk(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, steps=80, mu=10.0, cg_iters=10,
+               tol=0.02, corrections=5, m=8, log=print):
+    """Walk from a to b on the level set (inspired by Hessian null-space continuation, Huang et al.): each step has
+    length D/steps along d = (I + H/mu)^{-1} grad phi, phi = -|theta - b|^2 (by CG on Hessian-vector products, so
+    directions of curvature >> mu are avoided), made perpendicular to the loss gradient; then up to `corrections`
+    Newton steps theta -= (L - c) g / |g|^2 bring the loss back to c (interpolated by the progress towards b).
+    The path is the polyline of the corrected points; it is an upper bound on the shortest constant-loss path where
+    its dense check stays within tol."""
+    obj_check = obj_check or obj
+    ca_check = ca if ca_check is None else ca_check
+    cb_check = cb if cb_check is None else cb_check
+    D = float((a - b).norm())
+    eta = D / steps
+    pts, x, t0, hist = [], a.clone(), time.time(), []
+    target = lambda x: ca + (cb - ca) * min(1.0, max(0.0, 1 - float((x - b).norm()) / D))
+    for k in range(3 * steps):
+        if float((x - b).norm()) <= eta:
+            break
+        L, g = obj.loss_grad(x)
+        v = (b - x) / (b - x).norm()
+        d = cg(lambda u: u + obj.hvp(x, u) / mu, v, cg_iters)
+        d = d - (d @ g) / (g @ g) * g
+        x = x + eta * d / d.norm()
+        for _ in range(corrections):
+            L, g = obj.loss_grad(x)
+            r = L - target(x)
+            if abs(r) < tol / 4:
+                break
+            x = x - r * g / (g @ g)
+        pts.append(x.clone())
+        hist.append(dict(step=k, dist=float((x - b).norm()) / D, r=float(r), cos=float(d @ v / d.norm()),
+                         time=time.time() - t0))
+        log(f"walk {k}: |x - b|/D {hist[-1]['dist']:.4f}, L - c {r:+.4f}, cos(d, b - x) {hist[-1]['cos']:.3f} "
+            f"({hist[-1]['time']:.0f}s)")
+    X = torch.stack(pts)
+    reached = float((X[-1] - b).norm()) <= 1.5 * eta
+    s_pts = np.concatenate([[0], np.cumsum(lengths(X, a, b))])
+    c_chk = ca_check + (cb_check - ca_check) * s_pts / s_pts[-1]  # c by arclength along the walk
+    worst, dense = dense_check(obj_check, X, a, b, c_chk, tol, m)
+    _, Jv, ends = walk(obj_check, [a, *X, b])
+    res = dict(distance=D, n=len(X), ratio=float(s_pts[-1] / D), reached=reached, max_dev=float(worst.max()),
+               ok=bool(worst.max() <= tol), pred_ratio=dense['pred_ratio'], pred_ratio_points=pred_length(Jv, ends)[1],
+               tol=tol, dense=dense, history=hist, settings=dict(steps=steps, mu=mu, cg_iters=cg_iters,
+                                                                 corrections=corrections, m=m))
+    return X, res
+
+
 # ---------------------------------------------------------------- CLI
 
 def claim(out):
@@ -449,6 +530,21 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
         torch.save(dict(a=sa_, b=sb_, offsets=(X - straight(a, b, len(X))).half().cpu()), points_out)
 
 
+def do_walk(model, sets, sa_, sb_, args, out):
+    path_set, _, _ = sets
+    a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
+    fast, exact = Objective(model, path_set, fp32=False), Objective(model, path_set)
+    print(f'walk {sa_} -> {sb_}, mu={args.mu}', flush=True)
+    X, res = level_walk(fast, a, b, fast.loss(a), fast.loss(b), obj_check=exact, ca_check=exact.loss(a),
+                        cb_check=exact.loss(b), steps=args.walk_steps, mu=args.mu, cg_iters=args.cg_iters, tol=args.tol,
+                        m=args.m, log=lambda s: print(s, flush=True))
+    res.update(a=sa_, b=sb_, n_seqs=args.n_seqs)
+    print(f"walk: ratio {res['ratio']:.5f}, reached {res['reached']}, pred {res['pred_ratio']:.4f}, "
+          f"max dev {res['max_dev']:.4f}", flush=True)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(res, indent=1))
+
+
 PAIRS = {'adamw-muon_d0': ('adamw_d0', 'muon_d0'), 'adamw-muon_d1': ('adamw_d1', 'muon_d1'),
          'adamw_d0-d1': ('adamw_d0', 'adamw_d1'), 'muon_d0-d1': ('muon_d0', 'muon_d1')}
 
@@ -524,6 +620,10 @@ def cmd_run(args):
                 if claim(f):
                     do_band(model, sets, sa_, sb_, args, f, perturb=args.perturb, perturb_seed=seed)
                     release(f)
+            f = out / 'walk' / f'{name}_mu{args.mu:g}.json'
+            if args.walk and claim(f):
+                do_walk(model, sets, sa_, sb_, args, f)
+                release(f)
 
 
 def cmd_profile(args):
@@ -546,6 +646,9 @@ def band_args(s):
     s.add_argument('--round-iters', type=int, default=10)
     s.add_argument('--m', type=int, default=8)
     s.add_argument('--points', type=int, default=51)
+    s.add_argument('--walk-steps', type=int, default=80)
+    s.add_argument('--mu', type=float, default=10.0)
+    s.add_argument('--cg-iters', type=int, default=10)
 
 
 def main():
@@ -588,6 +691,7 @@ def main():
     s.add_argument('--perturb', type=float, default=0.1)
     s.add_argument('--perturb-seeds', type=int, nargs='*', default=[])
     s.add_argument('--save-points', action='store_true')
+    s.add_argument('--walk', action='store_true', help='also the level-set walk')
     band_args(s)
     args = p.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
