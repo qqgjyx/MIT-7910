@@ -654,7 +654,7 @@ def _setup_from(spec, args):
 
 def cmd_losses(args):
     runs = load_runs(args.runs)
-    model, (path_set, _, _, _) = setup(runs[0].cfg, args.n_seqs, args.device, args.chunk)
+    model, (path_set, *_) = setup(runs[0].cfg, args.n_seqs, args.device, args.chunk)
     obj = Objective(model, path_set)
     out = {}
     for r in runs:
