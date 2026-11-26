@@ -41,8 +41,8 @@ class Objective:
     of batches), rotate() moves to the next group: the band and the walk take a fresh group at every iteration, so
     that the path cannot fit one fixed set of sequences."""
 
-    def __init__(self, model, batches, fp32=True, groups=None):
-        self.model, self.batches, self.fp32 = model, batches, fp32
+    def __init__(self, model, batches, fp32=True, groups=None, amp=False):
+        self.model, self.batches, self.fp32, self.amp = model, batches, fp32, amp
         self.params = list(model.parameters())
         self.groups, self.g = groups, 0
 
@@ -52,11 +52,14 @@ class Objective:
 
     @contextlib.contextmanager
     def _precision(self):
-        """fp32=True: exact float32 matmuls (checks); False: TF32 (band iterations, faster)."""
+        """fp32=True: exact float32 matmuls (checks); False: TF32 (band iterations, faster); amp: bfloat16 autocast
+        on GPU, as in training (string-method steps)."""
         old = torch.backends.cuda.matmul.allow_tf32
         torch.backends.cuda.matmul.allow_tf32 = not self.fp32
+        amp = self.amp and self.params[0].is_cuda
         try:
-            yield
+            with torch.autocast('cuda', dtype=torch.bfloat16) if amp else contextlib.nullcontext():
+                yield
         finally:
             torch.backends.cuda.matmul.allow_tf32 = old
 
@@ -281,8 +284,8 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
                        js_steps=None if J is None else J.tolist(), js_ends=ends, pred_length=plen, pred_ratio=pratio)
 
 
-def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=600, lr=3e-4,
-         beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=200, round_iters=10, m=8, max_points=40,
+def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=1000, lr=1e-3,
+         beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=300, round_iters=10, m=8, max_points=40,
          init=None, log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
     method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`; `obj_check`
@@ -306,7 +309,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         """k steps of a stochastic string method: on a fresh group of sequences, each point takes an Adam step on
         (L_i - c_i)^2 / 2 (descent to the level set, like training; from below it climbs), then moves by beta times
         the discrete Laplacian of the path minus its component along the point's loss gradient (curve shortening
-        within the level set; it also evens out the spacing). Both step sizes decay to 0 over the last 30%."""
+        within the level set; it also evens out the spacing). Both step sizes warm up over the first 10% of the
+        steps and decay to 0 over the last 30%."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
         for t in range(1, k + 1):
             c = targets(*ends(obj_string), len(X))
@@ -314,7 +318,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             g = torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G
             mom.lerp_(g, 0.1)
             sq.lerp_(g * g, 0.01)
-            f = min(1.0, (k - t) / (0.3 * k))
+            f = min(1.0, t / (0.1 * k), (k - t) / (0.3 * k))
             P = torch.cat([a[None], X, b[None]])
             lap = P[:-2] + P[2:] - 2 * X
             u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
@@ -572,7 +576,8 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     # iterations on the pool (a fresh group of sequences each), the dense check on the held-out set
     fast, held = Objective(model, path_set, fp32=False, groups=pool), Objective(model, held)
     k = max(1, args.batch_seqs // args.chunk)  # the string phase: groups of batch_seqs sequences
-    small = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)])
+    small = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)],
+                      amp=True)
     ca, cb = fast.loss(a), fast.loss(b)
     init = None
     if perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
@@ -803,15 +808,15 @@ def cmd_band(args):
 
 def band_args(s):
     s.add_argument('--n', type=int, default=10)
-    s.add_argument('--steps', type=int, default=600, help='string-method steps')
-    s.add_argument('--lr', type=float, default=3e-4, help='Adam step of the string method')
+    s.add_argument('--steps', type=int, default=1000, help='string-method steps')
+    s.add_argument('--lr', type=float, default=1e-3, help='Adam step of the string method')
     s.add_argument('--beta', type=float, default=0.25, help='curve-shortening step of the string method')
     s.add_argument('--batch-seqs', type=int, default=128, help='sequences per string-method step')
     s.add_argument('--ws', type=float, nargs='+', default=[1, 10], help='weights of the Levenberg-Marquardt stages')
     s.add_argument('--iters', type=int, default=10, help='Levenberg-Marquardt iterations per stage')
     s.add_argument('--tol', type=float, default=0.02)
     s.add_argument('--rounds', type=int, default=4)
-    s.add_argument('--round-steps', type=int, default=200, help='string-method steps after an insertion')
+    s.add_argument('--round-steps', type=int, default=300, help='string-method steps after an insertion')
     s.add_argument('--round-iters', type=int, default=10)
     s.add_argument('--m', type=int, default=8)
     s.add_argument('--points', type=int, default=51)
