@@ -53,6 +53,22 @@ def say(s):
     restart_if_asked()
 
 
+class Stream:
+    """Groups of fresh training sequences without end, for Objective(groups=...): group j is n random training
+    sequences drawn with seed `seed + j`, in chunks (so that a long iteration never sees a sequence twice, like
+    training)."""
+
+    def __init__(self, data, n, chunk, seed):
+        self.data, self.n, self.chunk, self.seed = data, n, chunk, seed
+
+    def __len__(self):
+        return 2 ** 31
+
+    def __getitem__(self, j):
+        x, y = self.data.random_batches(1, self.n, self.seed + j)[0]
+        return [(x[i:i + self.chunk], y[i:i + self.chunk]) for i in range(0, self.n, self.chunk)]
+
+
 class Objective:
     """Mean loss on fixed batches as a function of the flat parameter vector of `model`. With `groups` (several lists
     of batches), rotate() moves to the next group: the band and the walk take a fresh group at every iteration, so
@@ -156,7 +172,7 @@ class Objective:
 def setup(cfg, n_seqs, device, chunk=64, pool=1):
     """Model; the path set and the held-out set (n_seqs training sequences each, in chunks); the probe's training
     sequences, on which the training loss of Fig. 1 is measured; the pool: the path set and pool - 1 more groups of
-    n_seqs sequences, which the band and walk iterations cycle through."""
+    n_seqs sequences, which the band and walk iterations cycle through; the data (for streams of fresh sequences)."""
     from optsplit.data import build_data
     data = build_data(cfg, device)
     model = build_model(cfg, vocab_size=data.vocab_size).to(device).eval()
@@ -165,7 +181,7 @@ def setup(cfg, n_seqs, device, chunk=64, pool=1):
     for n, seed in seeds + [(n_seqs, 1000 + j) for j in range(1, pool)]:
         x, y = data.fixed_batch('train', n, seed)
         sets.append([(x[i:i + chunk], y[i:i + chunk]) for i in range(0, n, chunk)])
-    return model, sets[:3] + [sets[:1] + sets[3:]]
+    return model, sets[:3] + [sets[:1] + sets[3:], data]
 
 
 def load_theta(spec, device):
@@ -661,7 +677,7 @@ def scale_free(model, a, b, init):
 
 
 def do_profile(model, sets, sa_, sb_, args, out):
-    path_set, held, probe, _ = sets
+    path_set, held, probe = sets[:3]
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     init = load_theta(sa_.rsplit(':', 1)[0] + ':0', args.device)
     obj = Objective(model, path_set)
@@ -681,17 +697,16 @@ def do_profile(model, sets, sa_, sb_, args, out):
 
 
 def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=1, points_out=None):
-    path_set, held, _, pool = sets
+    path_set, held, _, pool, data = sets
     n = n or args.n
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     # iterations on the pool (a fresh group of sequences each), the dense check on the held-out set
     fast, held = Objective(model, path_set, fp32=False, groups=pool), Objective(model, held)
-    k = max(1, args.batch_seqs // args.chunk)  # the string phase: groups of batch_seqs sequences
-    small = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)],
-                      amp=True)
-    k = max(1, args.shorten_seqs // args.chunk)  # the shortening phase: groups of shorten_seqs sequences
-    mid = Objective(model, path_set[:k], fp32=False, groups=[g[i:i + k] for g in pool for i in range(0, len(g), k)],
-                    amp=True)
+    # the string and shortening phases: fresh sequences at every step (batch_seqs and shorten_seqs of them)
+    small = Objective(model, path_set[:max(1, args.batch_seqs // args.chunk)], fp32=False, amp=True,
+                      groups=Stream(data, args.batch_seqs, args.chunk, 10 ** 6))
+    mid = Objective(model, path_set[:max(1, args.shorten_seqs // args.chunk)], fp32=False, amp=True,
+                    groups=Stream(data, args.shorten_seqs, args.chunk, 2 * 10 ** 6))
     ca, cb = fast.loss(a), fast.loss(b)
     init = None
     if perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
@@ -719,7 +734,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
 
 
 def do_walk(model, sets, sa_, sb_, args, out):
-    path_set, held, _, pool = sets
+    path_set, held, _, pool = sets[:4]
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     fast, held = Objective(model, path_set, fp32=False, groups=pool), Objective(model, held)
     print(f'walk {sa_} -> {sb_}, mu={args.mu}', flush=True)
