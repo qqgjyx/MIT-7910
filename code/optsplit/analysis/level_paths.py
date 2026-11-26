@@ -914,12 +914,17 @@ def cmd_work(args):
     """One worker: repeatedly takes the first task of task_list (tiers <= --max-tier) that nobody holds and does it.
     While select.json is missing, waits (checking every minute that the reruns or the selection are progressing).
     Writes tier1_done when every tier-1 output exists. Exit 0: nothing left to take; 3: the reruns are not ready
-    and nothing is making them. Restarts itself in place when asked (restart_if_asked). With YIELD=1 in the
+    and nothing is making them. Restarts itself in place when asked (restart_if_asked), dropping its locks. With YIELD=1 in the
     environment, stops (exit 0) instead of taking a new task while a job of the user that is not a level-paths one
     waits, unheld, for this job's partition."""
     global RESTART
     A = Path(args.dir)
     RESTART, model, sets = A / 'restart_workers', None, None
+    me = f"{os.environ.get('SLURM_JOB_ID', 'local')}:{socket.gethostname()}:{os.getpid()}"
+    for t in task_list(A, args):  # locks this process took before a restart in place
+        lock = Path(task_out(t, args)).with_suffix('.lock')
+        if lock.exists() and lock.read_text().strip() == me:
+            lock.unlink()
     while True:
         restart_if_asked()
         if os.environ.get('YIELD') == '1':
