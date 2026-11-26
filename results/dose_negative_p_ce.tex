@@ -7,6 +7,7 @@
 \usepackage{graphicx}
 \usepackage{float}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage[font=small,labelfont=bf,skip=3pt]{caption}
 \captionsetup[figure]{font=footnotesize}
 \usepackage[dvipsnames]{xcolor}
@@ -28,7 +29,7 @@
 \maketitle
 \vspace{-0.8em}
 
-\paragraph{Does a negative power $p$ help under cross-entropy?} At Muon's learning rate (0.01), slightly, but not for the same GPU time. The final validation loss is lowest at $p=-0.3$: 1.3002 against 1.3049 for standard Muon. It rises on both sides, steeply below $p=-0.5$ (\cref{tab:negp}). On three data orders, $p=-0.3$ beats Muon each time, by 0.0047, 0.0015 and 0.0115 (mean 1.3027 against 1.3086); for comparison, Muon's final loss has a standard deviation of 0.0033 over five data orders, so the smallest gain is within noise, but all three have the same sign. At half the rate, $p=-0.3$ ends at 1.3186, worse than Muon's 1.3077; the other powers at that rate are still running. An exact SVD makes each step 9 times slower than Muon's. LC12, a cheap approximation of the $p=-0.3$ update from 12 Newton--Schulz iterates, matches the exact run (mean 1.3020 against 1.3027) at about 1.35 times Muon's step time, but given the GPU time of 10{,}000 Muon steps it ends far behind Muon (1.3337 against 1.3086; \cref{tab:lc}).
+\paragraph{Does a negative power $p$ help under cross-entropy?} At Muon's learning rate (0.01), slightly, but not for the same GPU time. The final validation loss is lowest at $p=-0.3$: 1.3002 against 1.3049 for standard Muon. It rises on both sides, steeply below $p=-0.5$ (\cref{tab:negp}). On three data orders, $p=-0.3$ beats Muon each time, by 0.0047, 0.0015 and 0.0115 (mean 1.3027 against 1.3086); for comparison, Muon's final loss has a standard deviation of 0.0033 over five data orders, so the smallest gain is within noise, but all three have the same sign. At half the rate (0.005), the best power moves towards 0: $p=-0.1$ ends at 1.3016 and $p=0$ at 1.3024, against 1.3077 for standard Muon, while $p=-0.3$ ends at 1.3186; the best run overall is still $p=-0.3$ at rate 0.01. An exact SVD makes each step 9 times slower than Muon's. LC12, a cheap approximation of the $p=-0.3$ update from 12 Newton--Schulz iterates, matches the exact run (mean 1.3020 against 1.3027) at about 1.35 times Muon's step time, but given the GPU time of 10{,}000 Muon steps it ends far behind Muon (1.3337 against 1.3086; \cref{tab:lc}).
 
 \paragraph{What $p$ is.} Our variant takes the SVD $U\,\mathrm{diag}(s)\,V^\top$ of Muon's momentum matrix and updates the weights by $U\,\mathrm{diag}(s^p)\,V^\top$, rescaled to the Frobenius norm of the $p=0$ update. $p=0$ gives every direction the same step: this is Muon with exact orthogonalization; standard Muon approximates it by a Newton--Schulz iteration. $p<0$ gives the largest steps to the directions where the momentum is smallest. For $p<0$, each singular value is divided by the largest one and a ratio below $10^{-6}$ is set to $10^{-6}$ before taking the power.
 
@@ -37,22 +38,22 @@
 \begin{table}[H]
 \centering
 \small
-\caption{Muon with singular values raised to $p$, data order 0. Column 2: the first step at which the training loss reaches 1.81 (the level of our earlier table for $p\ge0$), at rate 0.01. Columns 3--4 at that step: stable rank ($\|W\|_F^2/\sigma_1^2$) and $\sigma_1/\sigma_{\mathrm{median}}$, means over the 36 weight matrices. Column 5: for the rate-0.01 runs, the first step at which the validation loss reaches AdamW's final loss, 1.3391. Rate 0.005: \emph{pending} runs are still running.}
+\caption{Muon with singular values raised to $p$, data order 0. Column 2: the first step at which the training loss reaches 1.81 (the level of our earlier table for $p\ge0$), at rate 0.01. Columns 3--4 at that step: stable rank ($\|W\|_F^2/\sigma_1^2$) and $\sigma_1/\sigma_{\mathrm{median}}$, means over the 36 weight matrices. Column 5: for the rate-0.01 runs, the first step at which the validation loss reaches AdamW's final loss, 1.3391.}
 \label{tab:negp}
 \begin{tabular}{l cccc cc}
 \toprule
     & step at training & stable & & step at val.\ loss & \multicolumn{2}{c}{final val.\ loss} \\
 run & loss 1.81 & rank & $\sigma_1/\sigma_{\mathrm{median}}$ & 1.3391 & rate 0.01 & rate 0.005 \\
 \midrule
-$p=-1$    & 2666 & 2.6  & 37.35 & not reached & 1.5248 & pending \\
-$p=-0.75$ & 1790 & 3.8  & 21.24 & not reached & 1.4113 & pending \\
-$p=-0.5$  & 1172 & 8.3  & 9.62  & 9077 & 1.3310 & pending \\
+$p=-1$    & 2666 & 2.6  & 37.35 & not reached & 1.5248 & 1.6232 \\
+$p=-0.75$ & 1790 & 3.8  & 21.24 & not reached & 1.4113 & 1.4524 \\
+$p=-0.5$  & 1172 & 8.3  & 9.62  & 9077 & 1.3310 & 1.3599 \\
 $p=-0.3$  & 959  & 43.2 & 3.80  & 7310 & \textbf{1.3002} & 1.3186 \\
-$p=-0.1$  & 817  & 98.2 & 2.44  & 7549 & 1.3035 & pending \\
-$p=0$     & 847  & 87.7 & 2.65  & 7521 & 1.3046 & pending \\
-$p=0.25$  & 965  & 64.1 & 3.38  & 8463 & 1.3250 & pending \\
-$p=0.5$   & 1132 & 39.1 & 5.34  & 9348 & 1.3351 & pending \\
-$p=0.75$  & 1432 & 32.9 & 9.06  & not reached & 1.3601 & pending \\
+$p=-0.1$  & 817  & 98.2 & 2.44  & 7549 & 1.3035 & \textbf{1.3016} \\
+$p=0$     & 847  & 87.7 & 2.65  & 7521 & 1.3046 & 1.3024 \\
+$p=0.25$  & 965  & 64.1 & 3.38  & 8463 & 1.3250 & \multirow{3}{2.9cm}{\centering not run (minimum\\bracketed at $p\le0$)} \\
+$p=0.5$   & 1132 & 39.1 & 5.34  & 9348 & 1.3351 & \\
+$p=0.75$  & 1432 & 32.9 & 9.06  & not reached & 1.3601 & \\
 \midrule
 Muon (Newton--Schulz) & 868 & 86.5 & 2.68 & 7474 & 1.3049 & 1.3077 \\
 LC12 ($p=-0.3$, \cref{tab:lc}) & 938 & -- & -- & 7366 & 1.3006 & -- \\
