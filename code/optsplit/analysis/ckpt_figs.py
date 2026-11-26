@@ -203,11 +203,12 @@ def forks(d, out, metrics=None, keys=()):
 
 
 def swap_traj(keys, out, suite=('ts10m_forks_dense',), pure=('ts10m_traj',), size=(7.1, 2.6), min_step=10,
-              dirs=(('adamw', 'muon'), ('muon', 'adamw'))):
+              dirs=(('adamw', 'muon'), ('muon', 'adamw')), max_fork=None):
     """Whole-model metrics (metrics/trajectory.py) against the step, one row per direction a -> b of `dirs`, of the
     swaps <a>_to_<b>_at<step> in the suites `suite`: the parent's optimizer on data order 0 (<a>_d0 in the suites
     `pure`) in black, each swapped run from its fork step (marker) to the end coloured by the fork step (log scale from
-    the first to the last), and the new optimizer on data order 0 grey dashed; points from step `min_step` on."""
+    the first to the last), and the new optimizer on data order 0 grey dashed; points from step `min_step` on; swaps
+    with fork steps up to `max_fork` (default: all)."""
     runs = root_dir() / 'runs'
 
     def load(run):
@@ -222,12 +223,13 @@ def swap_traj(keys, out, suite=('ts10m_forks_dense',), pure=('ts10m_traj',), siz
     with plt.rc_context(small):
         find = lambda pattern, suites: [p for s in suites for p in (runs / s).glob(pattern)]
         at = lambda p: int(p.name.rsplit('_at', 1)[1])
-        forks = sorted({at(p) for a, b in dirs for p in find(f'{a}_to_{b}_at*', suite)})
+        swapped = lambda a, b: [p for p in find(f'{a}_to_{b}_at*', suite) if max_fork is None or at(p) <= max_fork]
+        forks = sorted({at(p) for a, b in dirs for p in swapped(a, b)})
         cmap, norm = plt.get_cmap('viridis'), matplotlib.colors.LogNorm(forks[0], forks[-1])
         fig, axes = plt.subplots(len(dirs), len(keys), figsize=size, sharex=True, layout='constrained')
         fig.get_layout_engine().set(w_pad=1 / 72, h_pad=1 / 72, wspace=0.01, hspace=0.01)
         for row, (a, b) in zip(axes, dirs):
-            swaps = sorted((at(p), load(p.relative_to(runs))) for p in find(f'{a}_to_{b}_at*', suite))
+            swaps = sorted((at(p), load(p.relative_to(runs))) for p in swapped(a, b))
             parent, own = (load(find(f'{o}_d0', pure)[0].relative_to(runs)) for o in (a, b))
             for ax, k in zip(row, keys):
                 for f, run in swaps:
@@ -284,6 +286,7 @@ def main():
     s.add_argument('--pure', nargs='+', default=['ts10m_traj'], help='suites of the runs without a swap (data order 0)')
     s.add_argument('--dirs', nargs='+', default=['adamw/muon', 'muon/adamw'], help='a/b: one row for the swaps a to b')
     s.add_argument('--min-step', type=int, default=10, help='first step drawn')
+    s.add_argument('--max-fork', type=int, help='last fork step drawn (default: all)')
     s.add_argument('--size', type=float, nargs=2, default=(7.1, 2.6))
     s.add_argument('--out', required=True)
     s = sub.add_parser('swaps')
@@ -298,7 +301,7 @@ def main():
         barriers([tuple(x.split('=', 1)) for x in args.lmc], args.out)
     elif args.fig == 'swap-traj':
         swap_traj(args.keys, args.out, args.suite, args.pure, args.size, args.min_step,
-                  [tuple(x.split('/')) for x in args.dirs])
+                  [tuple(x.split('/')) for x in args.dirs], args.max_fork)
     elif args.fig == 'ranking':
         ranking(args.metrics, args.keys, args.curves, args.out,
                 [tuple(x.split('/')) for x in args.pairs] if args.pairs else RATIO_PAIRS, args.size, args.level,

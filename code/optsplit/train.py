@@ -68,6 +68,7 @@ def main(argv):
         rates = LayerRates(cfg, opt, model, data)
     probe = Probe(cfg, data)
     T = cfg.train.max_steps
+    end = cfg.train.stop_step or T
 
     start = 0
     if (out / 'latest.pt').exists():
@@ -122,7 +123,7 @@ def main(argv):
     clip = cfg.train.grad_clip if cfg.train.grad_clip > 0 else math.inf
     last_save, t0 = time.time(), time.time()
 
-    for step in range(start, T + 1):
+    for step in range(start, end + 1):
         if step in eval_steps:
             preds, rec = probe.evaluate(model)
             torch.save(preds, out / 'preds' / f'{step:07d}.pt')
@@ -144,7 +145,7 @@ def main(argv):
             rec['lr'] = base_lr * lr_mult(step, cfg)
             if m.delta_loss:
                 loss_before = probe.train_loss(model)
-        if step == T:
+        if step == end:
             if measure:
                 log('measure', step, **rec)
             break

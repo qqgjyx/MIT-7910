@@ -19,6 +19,7 @@ train:
   loss: ce                    # ce | mse (squared error to the one-hot target, summed over the classes)
   batch_size: 64
   max_steps: 5000
+  stop_step: null             # end the run here (short pilots); the schedule still runs to max_steps
   grad_clip: 0.0              # 0 disables clipping (clipping hides edge-of-stability dynamics)
   dtype: bfloat16             # autocast dtype of the training step on GPU: bfloat16 | float32
   compile: false
