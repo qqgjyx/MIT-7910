@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from optsplit.analysis import ckpt_figs  # noqa: F401 (the figures' font sizes)
-from optsplit.analysis.distance import loss_curve, step_curve
+from optsplit.analysis.distance import distance, step_curve
 from optsplit.analysis.io import Run, load_runs
 from optsplit.analysis.plots import _loss_axis, panel_labels
 from optsplit.analysis.rank_metrics import at_loss
@@ -128,21 +128,43 @@ def curves_zoom(runs, refs, level, out, max_loss, offset, ticks, zoom):
         print(f'wrote {path}')
 
 
+def smooth_loss(run, k=5):
+    """Training loss at the prediction steps; from step 1000 on (one evaluation every 250 steps) the mean over k
+    consecutive evaluations, then a running minimum."""
+    steps, loss = run.series('eval', 'train_loss')
+    keep = np.isin(steps, run.pred_steps)
+    steps, loss = steps[keep], loss[keep].copy()
+    late = steps >= 1000
+    if late.sum() >= k:
+        x = np.pad(loss[late], k // 2, mode='edge')
+        loss[late] = np.convolve(x, np.ones(k) / k, mode='valid')
+    return steps, np.minimum.accumulate(loss)
+
+
+def equal_loss(a, b):
+    """JS between each prediction step of `a` and the prediction step of `b` nearest to where b's smoothed training
+    loss reaches a's. Matching on the raw probe loss puts late checkpoints one checkpoint off (the loss moves about
+    as much between two checkpoints as its noise), and one checkpoint off is a jump up for runs as close as these."""
+    sa, la = smooth_loss(a)
+    sb, lb = smooth_loss(b)
+    ok = (la <= lb[0]) & (la >= lb[-1])
+    lev, first = np.unique(lb, return_index=True)  # increasing loss, the first step at each level
+    t = np.interp(la[ok], lev, sb[first])
+    u = sb[np.abs(sb[None, :] - t[:, None]).argmin(1)]
+    return dict(loss=la[ok], js=np.array([distance(a, s, b, v)[0] for s, v in zip(sa[ok], u)]))
+
+
 def paths(runs, muon, adamw, floors, out, max_loss, offset, ticks):
-    """JS between each run and plain Muon on its data order, at equal step (a) and at equal training loss (b); grey:
-    two data orders of one optimizer (`floors`: name -> ({data order: run}, colour)); dotted: AdamW against Muon.
-    In (b), a median over 3 consecutive checkpoints: late in training the probe loss moves about as much between two
-    checkpoints as its noise, so single checkpoints get matched one checkpoint off and jump up."""
+    """JS between each run and plain Muon on its data order, at equal step (a) and at equal training loss (b, see
+    equal_loss); grey: two data orders of one optimizer (`floors`: name -> ({data order: run}, colour)); dotted: AdamW
+    against Muon."""
     fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.8), sharey=True, layout='constrained')
     handles = {}
-    for ax, (curve, x) in zip(axes, ((step_curve, 'step_a'), (loss_curve, 'loss'))):
+    for ax, (curve, x) in zip(axes, ((step_curve, 'step_a'), (equal_loss, 'loss'))):
         def draw(a, b, label, **style):
             c = curve(a, b)
-            js = c['js'].copy()
-            if x == 'loss' and len(js) > 2:
-                js[1:-1] = np.median(np.lib.stride_tricks.sliding_window_view(js, 3), axis=1)
             ok = c['loss'] <= max_loss if x == 'loss' else np.ones(len(c['loss']), bool)
-            handles[label], = ax.plot(c[x][ok], js[ok], **style)
+            handles[label], = ax.plot(c[x][ok], c['js'][ok], **style)
 
         for name, (group, grey) in floors.items():
             for s, t in combinations(sorted(group), 2):
