@@ -1,9 +1,10 @@
-# ts10m_mse_tt with the cross-entropy loss: U S^p V^T at p = -0.3 by matrix products instead of an SVD, against the
-# exact runs of ts10m_ce_svp, at Muon's rate 0.01, data orders 0-2. -0.3 is the only power with coefficients for every
-# method: two-track Newton-Schulz with K = 12, 8, 5 steps (optim.muon.two_track_steps, 4K - 1 products) and LC with 12,
-# 8, 6, 5 steps (optim.muon.lc_steps, 3 products per step). References: ts10m_ce_svp/muon_p-0.3_lr0.01_d0-d2 (exact) and
-# ts10m_main/muon_d0-d2. At the log.two_track_check steps a run logs the error of every method against the exact update
-# on its own momentum. Kept small: no measurements, no stored outputs, no optimizer state, checkpoints every 1000 steps.
+# ts10m_mse_tt with the cross-entropy loss, LC only: U S^p V^T at p = -0.3 by a weighted sum of Newton-Schulz iterates
+# (optim.muon.lc_steps = 12, 8, 6, 5; 3 matrix products per step) instead of an SVD, against the exact runs of
+# ts10m_ce_svp, at Muon's rate 0.01, data orders 0-2. -0.3 is the only power with LC coefficients for 8 and 12 steps.
+# Two-track Newton-Schulz is not rerun: under MSE, LC was as good or better at every cost. References:
+# ts10m_ce_svp/muon_p-0.3_lr0.01_d0-d2 (exact) and ts10m_main/muon_d0-d2. At the log.two_track_check steps a run logs
+# the error of every method against the exact update on its own momentum. Kept small: no measurements, no stored
+# outputs, no optimizer state, checkpoints every 1000 steps.
 suite: ts10m_ce_tt
 base: ../base/tinystories_10m.yaml
 overrides:
@@ -17,7 +18,5 @@ overrides:
   log.ckpt_steps: {every: 1000, geometric: 0}
   log.two_track_check: [10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]
 runs:
-  - {optim.muon.two_track_steps: [12, 8, 5], train.data_seed: [0, 1, 2],
-     name: "muon_p{optim.muon.sv_power}_k{optim.muon.two_track_steps}_d{train.data_seed}"}
   - {optim.muon.lc_steps: [12, 8, 6, 5], train.data_seed: [0, 1, 2],
      name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
