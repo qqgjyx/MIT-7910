@@ -1,6 +1,7 @@
-"""Two-track Newton-Schulz against the exact SVD (suite ts10m_mse_tt): a table and the validation-loss curves.
+"""Two-track Newton-Schulz against the exact SVD (suites ts10m_mse_tt, ts10m_ce_tt): a table and the validation-loss curves.
 
     python -m optsplit.analysis.two_track --out <dir>
+    python -m optsplit.analysis.two_track --loss ce --level 1.81 --offset 1 --ticks 2 1.75 1.5 1.4 1.35 1.3 --out <dir>
 
 Per method (exact U S^p V^T at p = -0.3, two-track with 12, 8 and 5 steps, LC with 5, 6, 8 and 12 steps, plain Muon,
 exact p = 0; exact and two-track 12 at p = -0.5 in the table only): the matrix products per step, the time per training step measured in a pilot (scripts/two_track_pilot.sh:
@@ -8,7 +9,9 @@ the methods one after another on one GPU, two runs side by side; LC in a second 
 two-track 12),
 the error of the update against the exact one on the run's own momentum (`two_track`
 records), the final validation loss per data order and the step at which the training loss reaches a level.
-Writes <dir>/two_track.txt, <dir>/two_track.json and <dir>/figures/two_track_val.png.
+The time per step comes from the MSE pilots for both losses (the loss does not change the cost of the update). With
+--loss ce, the exact runs log their own error against a float64 SVD, and methods without runs are left out.
+Writes <dir>/two_track.txt, <dir>/two_track.json and <dir>/figures/two_track_val.png (two_track_ce.txt, ... with ce).
 """
 
 import argparse
@@ -28,22 +31,24 @@ from optsplit.analysis.rank_metrics import at_loss
 # label, run (data order {d}), pilot run (data orders 0, 1), matrix products per step, error key, line style
 P1, P2, P3 = 'ts10m_mse_tt_pilot', 'ts10m_mse_tt_pilot2', 'ts10m_mse_tt_pilot3'
 METHODS = [
-    ('exact SVD, $p=-0.3$', 'ts10m_mse_svp/muon_p-0.3_lr0.005_d{d}', f'{P1}/svd_p-0.3', 'SVD', 'svd32',
+    ('exact SVD, $p=-0.3$', '{svp}/muon_p-0.3_lr{lr}_d{d}', f'{P1}/svd_p-0.3', 'SVD', 'svd32',
      dict(color='#e34948')),
-    ('two-track, $K=12$', 'ts10m_mse_tt/muon_p-0.3_k12_d{d}', f'{P1}/tt12', '47', '12', dict(color='#2a78d6')),
-    ('two-track, $K=8$', 'ts10m_mse_tt/muon_p-0.3_k8_d{d}', f'{P1}/tt8', '31', '8', dict(color='#008300')),
-    ('two-track, $K=5$', 'ts10m_mse_tt/muon_p-0.3_k5_d{d}', f'{P1}/tt5', '19', '5', dict(color='#eda100')),
-    ('LC5', 'ts10m_mse_tt/muon_p-0.3_lc5_d{d}', f'{P2}/lc5', '15', 'lc5', dict(color='#6250d6', ls='-.')),
-    ('LC6', 'ts10m_mse_tt/muon_p-0.3_lc6_d{d}', f'{P2}/lc6', '18', 'lc6', dict(color='#1baf7a', ls='-.')),
-    ('LC8', 'ts10m_mse_tt/muon_p-0.3_lc8_d{d}', f'{P3}/lc8', '24', 'lc8', dict(color='#d55181', ls='-.')),
-    ('LC12', 'ts10m_mse_tt/muon_p-0.3_lc12_d{d}', f'{P3}/lc12', '36', 'lc12', dict(color='#7a4a1e', ls='-.')),
-    ('Muon (Newton–Schulz)', 'ts10m_mse_main/muon_d{d}', f'{P1}/muon', '15', None, dict(color='k', ls='--')),
-    ('exact SVD, $p=0$', 'ts10m_mse_svp/muon_p0_lr0.005_d{d}', f'{P1}/svd_p0', 'SVD', None, dict(color='0.55')),
+    ('two-track, $K=12$', '{tt}/muon_p-0.3_k12_d{d}', f'{P1}/tt12', '47', '12', dict(color='#2a78d6')),
+    ('two-track, $K=8$', '{tt}/muon_p-0.3_k8_d{d}', f'{P1}/tt8', '31', '8', dict(color='#008300')),
+    ('two-track, $K=5$', '{tt}/muon_p-0.3_k5_d{d}', f'{P1}/tt5', '19', '5', dict(color='#eda100')),
+    ('LC5', '{tt}/muon_p-0.3_lc5_d{d}', f'{P2}/lc5', '15', 'lc5', dict(color='#6250d6', ls='-.')),
+    ('LC6', '{tt}/muon_p-0.3_lc6_d{d}', f'{P2}/lc6', '18', 'lc6', dict(color='#1baf7a', ls='-.')),
+    ('LC8', '{tt}/muon_p-0.3_lc8_d{d}', f'{P3}/lc8', '24', 'lc8', dict(color='#d55181', ls='-.')),
+    ('LC12', '{tt}/muon_p-0.3_lc12_d{d}', f'{P3}/lc12', '36', 'lc12', dict(color='#7a4a1e', ls='-.')),
+    ('Muon (Newton–Schulz)', '{main}/muon_d{d}', f'{P1}/muon', '15', None, dict(color='k', ls='--')),
+    ('exact SVD, $p=0$', '{svp}/muon_p0_lr{lr}_d{d}', f'{P1}/svd_p0', 'SVD', None, dict(color='0.55')),
     # p = -0.5, table only (style None): timed as p = -0.3, same products
-    ('exact SVD, $p=-0.5$', 'ts10m_mse_svp/muon_p-0.5_lr0.005_d{d}', f'{P1}/svd_p-0.3', 'SVD', None, None),
-    ('two-track p=-0.5, $K=12$', 'ts10m_mse_tt/muon_p-0.5_k12_d{d}', f'{P1}/tt12', '47', '12', None),
+    ('exact SVD, $p=-0.5$', '{svp}/muon_p-0.5_lr{lr}_d{d}', f'{P1}/svd_p-0.3', 'SVD', None, None),
+    ('two-track p=-0.5, $K=12$', '{tt}/muon_p-0.5_k12_d{d}', f'{P1}/tt12', '47', '12', None),
 ]
 ORDERS = (0, 1, 2)
+SUITES = {'mse': dict(svp='ts10m_mse_svp', tt='ts10m_mse_tt', main='ts10m_mse_main', lr='0.005'),
+          'ce': dict(svp='ts10m_ce_svp', tt='ts10m_ce_tt', main='ts10m_main', lr='0.01')}
 
 
 def step_time(run):
@@ -58,13 +63,14 @@ def update_error(runs, key):
     return (float(np.median(err)), float(np.max(err))) if err else (np.nan, np.nan)
 
 
-def row(label, pattern, pilot, products, key, level):
-    runs = {d: Run(pattern.format(d=d)) for d in ORDERS}
+def row(label, pattern, pilot, products, key, level, suites):
+    runs = {d: Run(pattern.format(d=d, **suites)) for d in ORDERS}
     runs = {d: r for d, r in runs.items() if r.done}
     timed = [Run(f'{pilot}_d{d}') for d in (0, 1)]
     hit = lambda r: float(at_loss(np.c_[r.series('eval', 'train_loss')[1], r.series('eval', 'train_loss')[0]], [level])[0])
-    # the exact method's own error (float32 against float64 SVD) is logged by the pilot's exact runs
-    err = update_error(timed if key == 'svd32' else runs.values(), key) if key else (np.nan, np.nan)
+    # the exact method's own error (float32 against float64 SVD): logged by the pilot's exact runs under MSE
+    logged = key != 'svd32' or any(r.records_of('two_track') for r in runs.values())
+    err = update_error(runs.values() if logged else timed, key) if key else (np.nan, np.nan)
     return dict(method=label.replace('$', ''), products=products,
                 time=float(np.mean([step_time(r) for r in timed if r.records_of('train')] or [np.nan])),
                 err_median=err[0], err_max=err[1],
@@ -103,6 +109,7 @@ def curves(drawn, out, offset, ticks, zoom):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--loss', choices=list(SUITES), default='mse')
     ap.add_argument('--level', type=float, default=0.65)
     ap.add_argument('--offset', type=float, default=0.5, help='loss axis of the whole run on log(L - offset)')
     ap.add_argument('--ticks', type=float, nargs='+', default=[1.0, 0.9, 0.8, 0.7, 0.65, 0.6, 0.57])
@@ -114,7 +121,9 @@ def main():
 
     rows, drawn = [], []
     for label, pattern, pilot, products, key, style in METHODS:
-        r, runs = row(label, pattern, pilot, products, key, args.level)
+        r, runs = row(label, pattern, pilot, products, key, args.level, SUITES[args.loss])
+        if not runs and args.loss != 'mse':
+            continue
         rows.append(r)
         if style:
             drawn.append((label, runs, style))
@@ -127,10 +136,11 @@ def main():
         lines.append(f'{r["method"]:<22} {r["products"]:>8} {1e3 * r["time"]:>8.0f} {r["err_median"]:>8.3f} '
                      f'{r["err_max"]:>8.3f} ' + ' '.join(f'{cell(r["val"], d, ".4f"):>7}' for d in ORDERS)
                      + f' {mean(r["val"]):>7} ' + ' '.join(f'{cell(r["step"], d, ".0f"):>7}' for d in ORDERS))
-    (out / 'two_track.txt').write_text('\n'.join(lines) + '\n')
-    (out / 'two_track.json').write_text(json.dumps(rows, indent=1))
+    tag = '' if args.loss == 'mse' else f'_{args.loss}'
+    (out / f'two_track{tag}.txt').write_text('\n'.join(lines) + '\n')
+    (out / f'two_track{tag}.json').write_text(json.dumps(rows, indent=1))
     print('\n'.join(lines))
-    curves(drawn, out / 'figures' / 'two_track_val.png', args.offset, args.ticks, args.zoom)
+    curves(drawn, out / 'figures' / f'two_track_val{tag}.png', args.offset, args.ticks, args.zoom)
 
 
 if __name__ == '__main__':
