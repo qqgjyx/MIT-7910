@@ -193,8 +193,16 @@ def targets(ca, cb, n):
 
 
 def lengths(X, a, b):
-    P = torch.cat([a[None], X, b[None]])
-    return (P[1:] - P[:-1]).norm(dim=1).double().cpu().numpy()
+    P = [a, *X, b]
+    return np.array([float((P[k + 1] - P[k]).double().norm()) for k in range(len(P) - 1)])
+
+
+def dots(U, V, chunk=2 ** 20):
+    """U @ V.T in float64, a slice of parameters at a time (U, V: (n, P) float32)."""
+    out = 0
+    for i in range(0, U.shape[1], chunk):
+        out = out + U[:, i:i + chunk].double() @ V[:, i:i + chunk].double().T
+    return out.cpu().numpy()
 
 
 def merit(X, a, b, L, c, w, tol):
@@ -213,8 +221,8 @@ def gn_target(X, a, b, L, G, c, w, tol):
     Xl = straight(a, b, n)
     M = 2 * np.eye(n) - np.eye(n, k=1) - np.eye(n, k=-1)
     Minv = np.linalg.inv(M)
-    gram = (G.double() @ G.double().T).cpu().numpy()
-    e = np.asarray(c) - np.asarray(L) + ((X - Xl).double() * G.double()).sum(1).cpu().numpy()
+    gram = dots(G, G)
+    e = np.asarray(c) - np.asarray(L) + np.diag(dots(X - Xl, G))
     kappa = float((a - b).double().norm() ** 2) / (n + 1)
     gamma = np.linalg.solve(tol ** 2 / (kappa * w) * np.eye(n) + Minv * gram, e)
     coef = torch.tensor(Minv * gamma[None, :], dtype=X.dtype, device=X.device)  # coef[i, j] = Minv_ij gamma_j
@@ -229,7 +237,7 @@ def evaluate(obj, X):
 def dense_check(obj, X, a, b, c_pts, tol, m=8):
     """Loss at the points P_0..P_{N+1} (endpoints included) and at m interior points of every segment; c_pts (N+2
     values) interpolated linearly along each segment. -> per segment: max |L - c|; arrays (arclength, loss, c)."""
-    P = torch.cat([a[None], X, b[None]])
+    P = [a, *X, b]
     seg = lengths(X, a, b)
     s0 = np.concatenate([[0], np.cumsum(seg)])
     ts = np.linspace(0, 1, m + 2)
@@ -245,7 +253,7 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
 
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, ws=(1e-2, 1e-1, 1, 10, 100),
-         iters=10, tol=0.02, rounds=4, round_iters=10, m=8, max_points=80, trust=1.0, init=None, log=print):
+         iters=10, tol=0.02, rounds=4, round_iters=10, m=8, max_points=60, trust=1.0, init=None, log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring). `obj` drives the iterations,
     `obj_check` (default obj, with ca_check/cb_check) the dense check. Returns (points, result dict)."""
     obj_check = obj_check or obj
@@ -284,7 +292,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
     def summary(X, worst, dense):
         seg = lengths(X, a, b)
-        _, Jv, ends = walk(obj_check, torch.cat([a[None], X, b[None]]))
+        _, Jv, ends = walk(obj_check, [a, *X, b])
         return dict(n=len(X), ratio=float(seg.sum() / D), max_dev=float(np.max(worst)),
                     ok=bool(np.max(worst) <= tol), pred_ratio=dense['pred_ratio'],
                     pred_ratio_points=pred_length(Jv, ends)[1],
@@ -301,7 +309,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         log(f'check {r}: {len(X)} points, worst segment {worst.max():.4f} (tol {tol}), {len(bad)} segments out')
         if not len(bad) or r == rounds or len(X) + len(bad) > max_points:
             break
-        P = torch.cat([a[None], X, b[None]])
+        P = [a, *X, b]
         new = []
         for k in range(len(P) - 1):
             if k > 0:
@@ -389,7 +397,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
     X, res = band(fast, a, b, ca, cb, obj_check=exact, ca_check=exact.loss(a), cb_check=exact.loss(b), n=n,
                   ws=args.ws, iters=args.iters, tol=args.tol, rounds=args.rounds, round_iters=args.round_iters,
                   m=args.m, trust=args.trust, init=init, log=lambda s: print(s, flush=True))
-    hl = np.array([hold.loss(x) for x in torch.cat([a[None], X, b[None]])])
+    hl = np.array([hold.loss(x) for x in [a, *X, b]])
     hc = hl[0] + (hl[-1] - hl[0]) * np.linspace(0, 1, len(hl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, heldout=hl.tolist(), perturb=perturb, perturb_seed=perturb_seed,
                heldout_max_dev=float(np.abs(hl - hc).max()))
