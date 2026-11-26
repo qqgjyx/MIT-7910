@@ -14,7 +14,8 @@
 #   3. once the reruns are done (a job without TRAIN=1 stops here if they are not): losses of the rerun checkpoints,
 #      the levels, and the unselected rerun checkpoints are deleted;
 #   4. profiles and bands at every level, bent initial bands for one pair, the level-set walks.
-# Any failure (environment, training, analysis) ends the job instead of waiting.
+# Any failure (environment, training, analysis) ends the job instead of waiting, and waits check every 2 minutes
+# that what they wait for is alive (training: some file of the reruns changed in the last 20 minutes).
 # From the code directory (or with --chdir): sbatch --exclude node4207,node2809,node2810 -o <log> slurm/level_paths.sbatch
 source "${OPTSPLIT_CODE:-$PWD}/slurm/env.sh" || exit 1
 command -v python > /dev/null || { echo "no python: slurm/env.sh not found from $PWD"; exit 1; }
@@ -37,16 +38,19 @@ trap 'trap "" TERM; kill -TERM 0; wait; scontrol requeue $SLURM_JOB_ID 2>/dev/nu
 fg() { "$@" & wait $!; }  # a foreground command that the trap can interrupt
 
 mine() {  # take the lock of $1 unless another running job holds it (a pending, e.g. preempted, one does not)
-    if [ -e "$1" ]; then o=$(cat "$1"); [ "$o" != "$SLURM_JOB_ID" ] && squeue -h -t R -j "$o" 2>/dev/null | grep -q . && return 1; fi
+    (set -o noclobber; echo $SLURM_JOB_ID > "$1") 2>/dev/null && return 0
+    o=$(cat "$1"); [ "$o" != "$SLURM_JOB_ID" ] && squeue -h -t R -j "$o" 2>/dev/null | grep -q . && return 1
     echo $SLURM_JOB_ID > "$1"
 }
-train() {  # the reruns that no other running job is training, $PAR at a time; fails if any of them fails
+train() {  # the reruns that no other running job is training, $PAR at a time; a failed run is reported at once
     [ "$TRAIN" = 1 ] || return 0
     for r in adamw_d0 adamw_d1 muon_d0 muon_d1; do
         [ -e $R/$r/done ] || ! mine $R/$r/train.lock || echo $R/$r/config.yaml
-    done | xargs -r -P $PAR -I{} sh -c 'python -m optsplit.train {} >> $(dirname {})/train.out 2>&1'
+    done | xargs -r -P $PAR -I{} sh -c 'python -m optsplit.train {} >> $(dirname {})/train.out 2>&1 || {
+        echo "FAILED: training {} (see $(dirname {})/train.out)"; exit 1; }'
 }
 all_done() { for r in adamw_d0 adamw_d1 muon_d0 muon_d1; do [ -e $R/$r/done ] || return 1; done; }
+training_alive() { [ -n "$(find $R -mmin -20 2>/dev/null | head -1)" ]; }
 
 fail() { echo "FAILED: $*"; trap "" TERM; kill -TERM 0 2>/dev/null; exit 1; }  # stop the children, no requeue
 train & TP=$!
@@ -55,7 +59,11 @@ fg $LP run $A/select_main.json --out-dir $A/main --band-n 20 || fail "bands N=20
 fg $LP run $A/select_main.json --out-dir $A/main --band-n --walk || fail "walks, late level"
 wait $TP || fail "training: see $R/*/train.out"
 if [ "$TRAIN" = 1 ]; then
-    until all_done; do fg sleep 120; fg train || fail "training: see $R/*/train.out"; done  # another job may be training them
+    until all_done; do  # another job may be training them
+        fg sleep 120
+        fg train || fail "training: see $R/*/train.out"
+        training_alive || fail "training stalled: no file of the reruns changed in 20 minutes"
+    done
 elif ! all_done; then
     echo "reruns not done"; exit 0
 fi
@@ -66,7 +74,8 @@ if [ ! -e $A/select.json ] && mine $A/select.lock; then
         --levels $(for s in $LEVELS; do echo ts10m_level_paths/adamw_d0:$s; done) || fail select
     fg $LP prune $A/select.json || fail prune
 fi
-until [ -e $A/select.json ]; do mine $A/select.lock && fail "select.json missing"; fg sleep 60; done
+for i in $(seq 20); do [ -e $A/select.json ] && break; mine $A/select.lock && fail "select.json missing"; fg sleep 60; done
+[ -e $A/select.json ] || fail "select.json not written within 20 minutes"
 fg $LP run $A/select.json --out-dir $A/rerun --band-n 10 || fail "bands N=10"
 fg $LP run $A/select.json --out-dir $A/rerun --band-n 20 || fail "bands N=20"
 fg $LP run $A/select.json --out-dir $A/rerun --band-n --pairs adamw-muon_d0 --levels '#0' --perturb 0.1 \
