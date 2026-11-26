@@ -27,7 +27,7 @@ A=$OPTSPLIT_ROOT/analysis/level_paths
 LEVELS="1440 3300 680 397 272 10000"
 GPU=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)
 MEM=${GPU##*, }
-if [ "$MEM" -ge 70000 ]; then W=4; elif [ "$MEM" -ge 40000 ]; then W=3; else W=2; fi
+if [ "$MEM" -ge 70000 ]; then W=4; elif [ "$MEM" -ge 45000 ]; then W=3; else W=2; fi
 WORKERS=${WORKERS:-$W}
 MAXTIER=${MAXTIER:-4}
 TRAIN=${TRAIN:-0}
