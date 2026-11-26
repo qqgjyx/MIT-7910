@@ -46,7 +46,8 @@ def restart_if_asked():
     this pid, which the new process takes back."""
     if RESTART is None:
         return
-    for f in (RESTART, RESTART.with_name(f"{RESTART.name}.{os.environ.get('SLURM_JOB_ID', 'local')}")):
+    job = os.environ.get('SLURM_JOB_ID', 'local')
+    for f in (RESTART, RESTART.with_name(f'{RESTART.name}.{job}'), RESTART.with_name(f'{RESTART.name}.{job}.{os.getpid()}')):
         if f.exists() and f.stat().st_mtime > STARTED:
             print(f'restart: {f} is newer than this worker', flush=True)
             os.execv(sys.executable, [sys.executable, '-m', 'optsplit.analysis.level_paths', *sys.argv[1:]])
@@ -328,12 +329,14 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=1000, lr=1e-3,
          beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=300, round_iters=10, m=8, max_points=40,
-         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, log=print):
+         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, resume_steps=2500, log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
     method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`, then at most
     `shorten_steps` steps of curve shortening within the level set on `obj_shorten` (default obj); `obj_check`
     (default obj, with ca_check/cb_check) does the dense check. The points after the string and LM phases are saved
-    to `stash` (if given), and a later call with the same settings starts from there. Returns (points, result)."""
+    to `stash` (if given), and a later call starts from there; if they are off the level (max |L - c| above 2 tol), it
+    continues the string method from them, with a quarter of the step size, warming up over 10% of `resume_steps`
+    steps and annealing to 0 over the rest, and runs the LM stages again. Returns (points, result)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
     obj_shorten = obj_shorten or obj
@@ -350,7 +353,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         o.rotate()
         return o.loss(a), o.loss(b)
 
-    def string(X, k, scale=1.0):
+    def string(X, k, scale=1.0, hold=0.7):
         """At most k steps of a stochastic string method, with Adam step size scale * lr: on a fresh group of
         sequences, each point takes an Adam step on (L_i - c_i)^2 / 2 (descent to the level set, like training; from
         below it climbs), then moves by beta times the discrete Laplacian of the path minus its component along the
@@ -361,7 +364,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         over 200 steps (a noise plateau above the level, as in training at constant lr: then over all the remaining
         steps, at least as many as taken so far). Adam's betas are training's (0.9, 0.95)."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
-        warm, stop, decay, chk = 0.1 * k, int(0.7 * k), k - int(0.7 * k), []
+        warm, stop, decay, chk = 0.1 * k, int(hold * k), k - int(hold * k), []
         t = 0
         while t < stop + decay:
             t += 1
@@ -486,13 +489,16 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
 
     stages, first = [], dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, version=3)
     st = torch.load(stash, map_location=a.device) if stash is not None and Path(stash).exists() else None
-    # resume after the string and LM phases from a stash with these settings, or from any stash at the level
-    if st is not None and (st['settings'] == first or st['settings']['n'] == n and st['stages'][-1]['max_r'] <= 2 * tol):
+    st = st if st is not None and st['settings']['n'] == n else None
+    if st is not None:
         X, stages = st['X'], st['stages']
         hist.extend(st['hist'])
-        log(f'resumed after the string and LM phases from {stash}')
-    else:
-        if steps:
+        log(f"resumed after the string and LM phases from {stash}, max|L-c| {stages[-1]['max_r']:.4f}")
+    if st is None or stages[-1]['max_r'] > 2 * tol:
+        if st is not None:  # a path off the level: continue from it
+            X = string(X, resume_steps, scale=0.25, hold=0.1)
+            stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+        elif steps:
             X = string(X, steps)
             stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
         for w in ws:
@@ -750,7 +756,8 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
                   obj_string=small, steps=args.steps, lr=args.lr, beta=args.beta, ws=args.ws, iters=args.iters,
                   tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
                   m=args.m, init=init, obj_shorten=mid, shorten_steps=args.shorten_steps,
-                  shorten_beta=args.shorten_beta, stash=Path(out).with_suffix('.stage.pt'), log=say)
+                  shorten_beta=args.shorten_beta, stash=Path(out).with_suffix('.stage.pt'),
+                  resume_steps=args.resume_steps, log=say)
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
@@ -1098,6 +1105,7 @@ def cmd_band(args):
 def band_args(s):
     s.add_argument('--n', type=int, default=10)
     s.add_argument('--steps', type=int, default=6000, help='string-method steps')
+    s.add_argument('--resume-steps', type=int, default=2500, help='string-method steps from saved points off the level')
     s.add_argument('--lr', type=float, default=2e-3, help='Adam step of the string method')
     s.add_argument('--beta', type=float, default=0.05, help='curve-shortening step of the string method')
     s.add_argument('--batch-seqs', type=int, default=128, help='sequences per string-method step')
