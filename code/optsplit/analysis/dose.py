@@ -142,16 +142,20 @@ def smooth_loss(run, k=5):
 
 
 def equal_loss(a, b):
-    """JS between each prediction step of `a` and the prediction step of `b` nearest to where b's smoothed training
-    loss reaches a's. Matching on the raw probe loss puts late checkpoints one checkpoint off (the loss moves about
-    as much between two checkpoints as its noise), and one checkpoint off is a jump up for runs as close as these."""
+    """JS between each prediction step of `a` and `b` at the step t where b's smoothed training loss reaches a's,
+    interpolated linearly in t between b's two prediction steps around t. Runs as close as these move between two
+    prediction steps (250 apart) about as much as they differ, so taking the nearest step instead makes the curve
+    jump whenever the matched step crosses a midpoint."""
     sa, la = smooth_loss(a)
     sb, lb = smooth_loss(b)
     ok = (la <= lb[0]) & (la >= lb[-1])
     lev, first = np.unique(lb, return_index=True)  # increasing loss, the first step at each level
     t = np.interp(la[ok], lev, sb[first])
-    u = sb[np.abs(sb[None, :] - t[:, None]).argmin(1)]
-    return dict(loss=la[ok], js=np.array([distance(a, s, b, v)[0] for s, v in zip(sa[ok], u)]))
+    hi = np.clip(np.searchsorted(sb, t), 1, len(sb) - 1)
+    w = (t - sb[hi - 1]) / (sb[hi] - sb[hi - 1])
+    js = [(1 - wi) * distance(a, s, b, sb[i - 1])[0] + wi * distance(a, s, b, sb[i])[0]
+          for s, i, wi in zip(sa[ok], hi, w)]
+    return dict(loss=la[ok], js=np.array(js))
 
 
 def paths(runs, muon, adamw, floors, out, max_loss, offset, ticks):
