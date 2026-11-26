@@ -282,11 +282,21 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     for w in ws:
         X = run_stage(X, w, iters)
         stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
+    def summary(X, worst, dense):
+        seg = lengths(X, a, b)
+        _, Jv, ends = walk(obj_check, torch.cat([a[None], X, b[None]]))
+        return dict(n=len(X), ratio=float(seg.sum() / D), max_dev=float(np.max(worst)),
+                    ok=bool(np.max(worst) <= tol), pred_ratio=dense['pred_ratio'],
+                    pred_ratio_points=pred_length(Jv, ends)[1],
+                    offline_max=float((X - straight(a, b, len(X))).norm(dim=1).max() / D))
+
     checks = []
     for r in range(rounds + 1):
         c_chk = np.concatenate([[ca_check], targets(ca_check, cb_check, len(X)), [cb_check]])
         worst, dense = dense_check(obj_check, X, a, b, c_chk, tol, m)
         checks.append(dict(n=len(X), worst=worst.tolist()))
+        if r == 0:
+            fixed = summary(X, worst, dense)  # fixed N, before any insertion
         bad = np.flatnonzero(worst > tol)
         log(f'check {r}: {len(X)} points, worst segment {worst.max():.4f} (tol {tol}), {len(bad)} segments out')
         if not len(bad) or r == rounds or len(X) + len(bad) > max_points:
@@ -299,15 +309,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             if k in bad:
                 new.append((P[k] + P[k + 1]) / 2)
         X = run_stage(torch.stack(new), ws[-1], round_iters)
-    seg = lengths(X, a, b)
-    Xl = straight(a, b, len(X))
-    _, Jv, ends = walk(obj_check, torch.cat([a[None], X, b[None]]))
-    plen, pratio = pred_length(Jv, ends)
-    res = dict(pred_length_points=plen, pred_ratio_points=pratio, pred_ratio=dense['pred_ratio'],
-               distance=D, n=len(X), ratio=float(seg.sum() / D), seg=seg.tolist(), tol=tol,
-               offline_max=float((X - Xl).norm(dim=1).max() / D), c_a=ca_check, c_b=cb_check,
-               max_dev=float(np.max(worst)), ok=bool(np.max(worst) <= tol), dense=dense, history=hist, checks=checks,
-               stages=stages,
+    valid = summary(X, worst, dense)  # after the insertions
+    res = dict(**valid, fixed=fixed, valid=valid, distance=D, seg=lengths(X, a, b).tolist(), tol=tol, c_a=ca_check,
+               c_b=cb_check, dense=dense, history=hist, checks=checks, stages=stages,
                settings=dict(n=n, ws=list(ws), iters=iters, rounds=rounds, round_iters=round_iters, m=m, trust=trust))
     return X, res
 
@@ -351,49 +355,129 @@ def scale_free(model, a, b, init):
     return out
 
 
-def cmd_profile(args):
-    model, (path_set, held) = _setup_from(args.a, args)
-    a, b = load_theta(args.a, args.device), load_theta(args.b, args.device)
-    init = load_theta(args.a.rsplit(':', 1)[0] + ':0', args.device)
+def do_profile(model, sets, sa_, sb_, args, out):
+    path_set, held = sets
+    a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
+    init = load_theta(sa_.rsplit(':', 1)[0] + ':0', args.device)
     obj = Objective(model, path_set)
     res = profile(obj, a, b, args.points)
-    sa, sb = obj.per_seq(a), obj.per_seq(b)
-    res.update(a=args.a, b=args.b, n_seqs=args.n_seqs, se_mean=float(sa.std() / math.sqrt(len(sa))),
-               se_pair=float((sa - sb).std() / math.sqrt(len(sa))),
+    la, lb = obj.per_seq(a), obj.per_seq(b)
+    res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, se_mean=float(la.std() / math.sqrt(len(la))),
+               se_pair=float((la - lb).std() / math.sqrt(len(la))),
                heldout=[Objective(model, held).loss(x) for x in (a, b)],
                from_init=[float((a - init).norm()), float((b - init).norm())],
                rel_distance=scale_free(model, a, b, init))
-    print(f"{args.a} vs {args.b}: c {res['c_a']:.4f} -> {res['c_b']:.4f}, rise {res['rise']:.4f}, "
+    print(f"{sa_} vs {sb_}: c {res['c_a']:.4f} -> {res['c_b']:.4f}, rise {res['rise']:.4f}, "
           f"dip {res['dip']:.4f}, D {res['distance']:.2f}, D/init {res['rel_distance']['all']:.3f}, "
-          f"se_pair {res['se_pair']:.4f}")
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(res, indent=1))
+          f"pred ratio {res['pred_ratio']:.4f}, se_pair {res['se_pair']:.4f}", flush=True)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(res, indent=1))
 
 
-def cmd_band(args):
-    model, (path_set, held) = _setup_from(args.a, args)
-    a, b = load_theta(args.a, args.device), load_theta(args.b, args.device)
+def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=1, points_out=None):
+    path_set, held = sets
+    n = n or args.n
+    a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     fast, exact, hold = Objective(model, path_set, fp32=False), Objective(model, path_set), Objective(model, held)
     ca, cb = fast.loss(a), fast.loss(b)
     init = None
-    if args.perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
-        u = torch.randn(a.shape, generator=torch.Generator().manual_seed(args.perturb_seed)).to(a.device)
-        t = torch.arange(1, args.n + 1, device=a.device)[:, None] / (args.n + 1)
-        init = straight(a, b, args.n) + args.perturb * float((a - b).norm()) * torch.sin(math.pi * t) * u / u.norm()
-    X, res = band(fast, a, b, ca, cb, obj_check=exact, ca_check=exact.loss(a), cb_check=exact.loss(b), n=args.n,
+    if perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
+        u = torch.randn(a.shape, generator=torch.Generator().manual_seed(perturb_seed)).to(a.device)
+        t = torch.arange(1, n + 1, device=a.device)[:, None] / (n + 1)
+        init = straight(a, b, n) + perturb * float((a - b).norm()) * torch.sin(math.pi * t) * u / u.norm()
+    print(f'band {sa_} -> {sb_}, N={n}, perturb={perturb}', flush=True)
+    X, res = band(fast, a, b, ca, cb, obj_check=exact, ca_check=exact.loss(a), cb_check=exact.loss(b), n=n,
                   ws=args.ws, iters=args.iters, tol=args.tol, rounds=args.rounds, round_iters=args.round_iters,
                   m=args.m, trust=args.trust, init=init, log=lambda s: print(s, flush=True))
     hl = np.array([hold.loss(x) for x in torch.cat([a[None], X, b[None]])])
     hc = hl[0] + (hl[-1] - hl[0]) * np.linspace(0, 1, len(hl))
-    res.update(a=args.a, b=args.b, n_seqs=args.n_seqs, heldout=hl.tolist(), perturb=args.perturb,
-               perturb_seed=args.perturb_seed,
+    res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, heldout=hl.tolist(), perturb=perturb, perturb_seed=perturb_seed,
                heldout_max_dev=float(np.abs(hl - hc).max()))
-    print(f"ratio {res['ratio']:.5f}, {res['n']} points, max dev {res['max_dev']:.4f}, "
+    f, v = res['fixed'], res['valid']
+    print(f"fixed N={f['n']}: ratio {f['ratio']:.5f}, pred {f['pred_ratio']:.4f}, max dev {f['max_dev']:.4f}; "
+          f"valid N={v['n']}: ratio {v['ratio']:.5f}, pred {v['pred_ratio']:.4f}, max dev {v['max_dev']:.4f}; "
           f"held-out max dev {res['heldout_max_dev']:.4f}", flush=True)
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(res, indent=1))
-    if args.save_points:
-        torch.save(dict(a=args.a, b=args.b, offsets=(X - straight(a, b, len(X))).half().cpu()), args.save_points)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(res, indent=1))
+    if points_out:
+        torch.save(dict(a=sa_, b=sb_, offsets=(X - straight(a, b, len(X))).half().cpu()), points_out)
+
+
+PAIRS = {'adamw-muon_d0': ('adamw_d0', 'muon_d0'), 'adamw-muon_d1': ('adamw_d1', 'muon_d1'),
+         'adamw_d0-d1': ('adamw_d0', 'adamw_d1'), 'muon_d0-d1': ('muon_d0', 'muon_d1')}
+
+
+def cmd_select(args):
+    """For each level, the checkpoint of each run whose loss on the path set is closest to c. A level is a loss
+    ('2.4': checkpoints of --suite) or 'RUN:STEP' (c is that checkpoint's loss; checkpoints of its suite)."""
+    losses = {}
+    for f in args.losses:
+        losses.update(json.loads(Path(f).read_text()))
+    out = {}
+    for level in args.levels:
+        if ':' in level:
+            ref, step = level.split(':')
+            suite, c = ref.split('/')[0], losses[ref][step]
+        else:
+            suite, c = args.suite, float(level)
+        pick = {}
+        for run in {r for pair in PAIRS.values() for r in pair}:
+            steps = {int(s): l for s, l in losses[f'{suite}/{run}'].items() if int(s) > 0}
+            s = min(steps, key=lambda s: abs(steps[s] - c))
+            pick[run] = (f'{suite}/{run}:{s}', steps[s])
+        out[f'{c:.3f}'] = dict(c=c, pick=pick, pairs={k: [pick[x][0], pick[y][0], abs(pick[x][1] - pick[y][1])]
+                                                       for k, (x, y) in PAIRS.items()})
+        print(f'c={c:.4f}: ' + ', '.join(f'{r} {s.split(":")[1]} ({l - c:+.4f})' for r, (s, l) in sorted(pick.items())))
+    Path(args.out).write_text(json.dumps(out, indent=1))
+
+
+def cmd_run(args):
+    """Profiles and bands for the selected pairs (skips outputs that exist)."""
+    sel = json.loads(Path(args.select).read_text())
+    out = Path(args.out_dir)
+    model = sets = None
+    for level in args.levels or sel:
+        for pair in args.pairs or PAIRS:
+            sa_, sb_, _ = sel[level]['pairs'][pair]
+            if model is None:
+                model, sets = _setup_from(sa_, args)
+            name = f'{level}_{pair}'
+            if not (out / 'profile' / f'{name}.json').exists():
+                do_profile(model, sets, sa_, sb_, args, out / 'profile' / f'{name}.json')
+            if args.profiles_only:
+                continue
+            for n in args.band_n:
+                f = out / 'band' / f'{name}_n{n}.json'
+                if not f.exists():
+                    do_band(model, sets, sa_, sb_, args, f, n=n,
+                            points_out=out / 'points' / f'{name}_n{n}.pt' if args.save_points else None)
+            for seed in args.perturb_seeds:
+                f = out / 'band' / f'{name}_n{args.n}_perturb{args.perturb}_s{seed}.json'
+                if not f.exists():
+                    do_band(model, sets, sa_, sb_, args, f, perturb=args.perturb, perturb_seed=seed)
+
+
+def cmd_profile(args):
+    model, sets = _setup_from(args.a, args)
+    do_profile(model, sets, args.a, args.b, args, args.out)
+
+
+def cmd_band(args):
+    model, sets = _setup_from(args.a, args)
+    do_band(model, sets, args.a, args.b, args, args.out, perturb=args.perturb, perturb_seed=args.perturb_seed,
+            points_out=args.save_points)
+
+
+def band_args(s):
+    s.add_argument('--n', type=int, default=10)
+    s.add_argument('--ws', type=float, nargs='+', default=[1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 10])
+    s.add_argument('--iters', type=int, default=10)
+    s.add_argument('--tol', type=float, default=0.02)
+    s.add_argument('--rounds', type=int, default=4)
+    s.add_argument('--round-iters', type=int, default=10)
+    s.add_argument('--m', type=int, default=8)
+    s.add_argument('--trust', type=float, default=1.0)
+    s.add_argument('--points', type=int, default=51)
 
 
 def main():
@@ -405,29 +489,39 @@ def main():
     s.add_argument('runs', nargs='+')
     s.add_argument('--steps', type=int, nargs='*')
     s.add_argument('--out', required=True)
+    s = sub.add_parser('select')
+    s.add_argument('--losses', nargs='+', required=True)
+    s.add_argument('--levels', nargs='+', required=True)
+    s.add_argument('--suite', default='ts10m_level_paths')
+    s.add_argument('--out', required=True)
     s = sub.add_parser('profile')
     s.add_argument('a')
     s.add_argument('b')
-    s.add_argument('--points', type=int, default=51)
+    band_args(s)
     s.add_argument('--out', required=True)
     s = sub.add_parser('band')
     s.add_argument('a')
     s.add_argument('b')
-    s.add_argument('--n', type=int, default=10)
-    s.add_argument('--ws', type=float, nargs='+', default=[1e-2, 1e-1, 1, 10, 100])
-    s.add_argument('--iters', type=int, default=10)
-    s.add_argument('--tol', type=float, default=0.02)
-    s.add_argument('--rounds', type=int, default=4)
-    s.add_argument('--round-iters', type=int, default=10)
-    s.add_argument('--m', type=int, default=8)
-    s.add_argument('--trust', type=float, default=1.0)
+    band_args(s)
     s.add_argument('--perturb', type=float, default=0.0, help='initial bend, as a fraction of D (0: straight line)')
     s.add_argument('--perturb-seed', type=int, default=1)
     s.add_argument('--out', required=True)
     s.add_argument('--save-points')
+    s = sub.add_parser('run')
+    s.add_argument('select')
+    s.add_argument('--out-dir', required=True)
+    s.add_argument('--levels', nargs='*')
+    s.add_argument('--pairs', nargs='*')
+    s.add_argument('--profiles-only', action='store_true')
+    s.add_argument('--band-n', type=int, nargs='*', default=[10, 20])
+    s.add_argument('--perturb', type=float, default=0.1)
+    s.add_argument('--perturb-seeds', type=int, nargs='*', default=[])
+    s.add_argument('--save-points', action='store_true')
+    band_args(s)
     args = p.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
-    {'losses': cmd_losses, 'profile': cmd_profile, 'band': cmd_band}[args.cmd](args)
+    {'losses': cmd_losses, 'select': cmd_select, 'profile': cmd_profile, 'band': cmd_band,
+     'run': cmd_run}[args.cmd](args)
 
 
 if __name__ == '__main__':
