@@ -968,8 +968,8 @@ def cmd_plot(args):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from optsplit.analysis.rank_metrics import loss_axis
-    plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.labelsize': 7, 'legend.fontsize': 6,
-                         'xtick.labelsize': 6, 'ytick.labelsize': 6})
+    plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 9, 'axes.labelsize': 7,
+                         'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
     fig, axes = plt.subplots(2, 2, figsize=(7.1, 3.9))
     axes = axes.ravel()
@@ -998,12 +998,14 @@ def cmd_plot(args):
         for r in rs:
             if r['step']:
                 at.setdefault(r['step'], []).append(r['probe'])
+    xs = [r['probe'] for rs in recs.values() for r in rs]
     for ax in axes:
         loss_axis(ax)
+        ax.set_xlim(max(xs) + 0.2, min(xs) - 0.02)
         ax.set_xlabel('training loss')
-        top = ax.secondary_xaxis('top')  # the levels, as a fraction of AdamW training (10k steps)
-        top.set_xticks([np.mean(v) for v in at.values()], [f'{s // 100}%' for s in at])
-        top.tick_params(labelsize=5, length=2, pad=1)
+        for s, v in at.items():  # the levels, as a fraction of AdamW training (10k steps)
+            ax.text(np.mean(v), 1.01, f'{round(s / 100)}%', transform=ax.get_xaxis_transform(), ha='center',
+                    va='bottom', fontsize=5)
     from optsplit.analysis.plots import panel_labels
     panel_labels(axes)
     h = [plt.Line2D([], [], color=STYLE[k]['color'], lw=0.9) for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')]
@@ -1035,7 +1037,7 @@ def cmd_table(args):
                     continue
                 n10, n20, p = r['n10'], r['n20'], r['prof']
                 print(' & '.join([
-                    f'{x:.2f}', '--' if s is None else f'{s} ({s // 100}\\%)', NAMES[pair],
+                    f'{x:.2f}', '--' if s is None else f'{s} ({round(s / 100)}\\%)', NAMES[pair],
                     f(abs(p['c_a'] - p['c_b'])), f(p['rise'], 2), f(abs(p['dip']), 2),
                     f(p['rel_distance']['all'], 2), f(n10 and n10['fixed']['ratio'], 4),
                     f(n20 and n20['fixed']['ratio'], 4),
