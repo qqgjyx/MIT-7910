@@ -355,10 +355,11 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         sequences, each point takes an Adam step on (L_i - c_i)^2 / 2 (descent to the level set, like training; from
         below it climbs), then moves by beta times the discrete Laplacian of the path minus its component along the
         point's loss gradient (curve shortening within the level set; it also evens out the spacing). Both step sizes
-        warm up over the first 10% of the steps and then decay linearly to 0, over the last 30% of the k steps or,
-        earlier, over as many steps as taken so far (a long anneal, as in training), once the max |L - c| at the
-        points on the check set (the better of two checks 50 steps apart, against occasional spikes) is below 2 tol
-        or has improved by less than 2% over 200 steps. Adam's betas are training's (0.9, 0.95)."""
+        warm up over the first 10% of the steps and then decay linearly to 0: over the last 30% of the k steps or
+        earlier, once the max |L - c| at the points on the check set (the better of two checks 50 steps apart, against
+        occasional spikes) is below 2 tol (then over as many steps as taken so far) or has improved by less than 2%
+        over 200 steps (a noise plateau above the level, as in training at constant lr: then over all the remaining
+        steps, at least as many as taken so far). Adam's betas are training's (0.9, 0.95)."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
         warm, stop, decay, chk = 0.1 * k, int(0.7 * k), k - int(0.7 * k), []
         t = 0
@@ -383,7 +384,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 d1 = min(chk[-2:])
                 flat = len(chk) >= 6 and min(chk[-6:-4]) - d1 < max(0.003, 0.02 * min(chk[-6:-4]))
                 if flat or d1 <= 2 * tol:
-                    stop, decay = t, t
+                    stop, decay = t, t if d1 <= 2 * tol else max(t, k - t)
                     log(f"string: {'flat' if flat else 'at the level'}, decaying over {decay} steps")
             if t % 50 == 0 or t == stop + decay:
                 hist.append(dict(phase='string', n=len(X), t=t, max_r=float(np.abs(L - c).max()),
@@ -403,10 +404,14 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         loss gradient, plus a Newton step back to its target loss. beta adapts like a trust region: if the max
         |L - c| after a step exceeds lim = max(tol, 1.5 x its value at the start), the step is undone and beta
         halved; after a step that keeps it below lim / 2, beta grows by 20% (up to shorten_beta; it starts at 1/16 of
-        that). Stops once the length has fallen by less than 1% of its excess over the last 100 steps."""
+        that). Stops once the length has fallen by less than 1% of its excess over the last 100 steps. Skipped for a
+        path off the level (max |L - c| on the check set above 2 tol), where the Newton steps fail."""
         bs, ratios, prev, lim, undone = shorten_beta / 16, [float(lengths(X, a, b).sum() / D)], None, None, 0
         hist.append(dict(phase='shorten', n=len(X), t=0, beta=bs, check_max_r=check_dev(X), ratio=ratios[0],
                          time=time.time() - t0))
+        if hist[-1]['check_max_r'] > 2 * tol:
+            log(f"shorten: skipped, max|L-c| {hist[-1]['check_max_r']:.4f} on the check set")
+            return X
         for t in range(1, k + 1):
             c = targets(*ends(obj_shorten), len(X))
             L, G = evaluate(obj_shorten, X)
@@ -479,11 +484,10 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 break  # converged at this w (E_w >= 1), or stuck (for 3 iterations only tiny steps lowered E_w)
         return X
 
-    stages, first = [], dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, version=2)
+    stages, first = [], dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, version=3)
     st = torch.load(stash, map_location=a.device) if stash is not None and Path(stash).exists() else None
-    # resume after the string and LM phases; from a version-1 stash (a shorter anneal) only if it reached c
-    v1 = {k: v for k, v in first.items() if k != 'version'}
-    if st is not None and (st['settings'] == first or st['settings'] == v1 and st['stages'][-1]['max_r'] <= 2 * tol):
+    # resume after the string and LM phases from a stash with these settings, or from any stash at the level
+    if st is not None and (st['settings'] == first or st['settings']['n'] == n and st['stages'][-1]['max_r'] <= 2 * tol):
         X, stages = st['X'], st['stages']
         hist.extend(st['hist'])
         log(f'resumed after the string and LM phases from {stash}')
@@ -1093,7 +1097,7 @@ def cmd_band(args):
 
 def band_args(s):
     s.add_argument('--n', type=int, default=10)
-    s.add_argument('--steps', type=int, default=3000, help='string-method steps')
+    s.add_argument('--steps', type=int, default=6000, help='string-method steps')
     s.add_argument('--lr', type=float, default=2e-3, help='Adam step of the string method')
     s.add_argument('--beta', type=float, default=0.05, help='curve-shortening step of the string method')
     s.add_argument('--batch-seqs', type=int, default=128, help='sequences per string-method step')
