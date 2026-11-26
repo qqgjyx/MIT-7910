@@ -14,7 +14,9 @@
 #   - meanwhile WORKERS processes (default by GPU memory) of `level_paths work`, which take the profiles, bands and
 #     walks in priority order (tiers <= MAXTIER, default 4; see task_list). The late level needs no reruns.
 #   - GROUP=1: one job per job name runs at a time (submit the same name with several GPU types): the first to start
-#     holds the others and releases them when it ends or is requeued.
+#     holds the others and releases them when it ends or is requeued (of two that start together, the lower id stays);
+#   - YIELD=1: the workers take no new task while another job of the user, not a level-paths one, waits for this
+#     partition (for deferred work on shared slots, with --nice).
 # Any failure ends the job, and every wait checks every 1-2 minutes that what it waits for is alive.
 # From the code directory (or with --chdir): sbatch --exclude node4207,node2809,node2810 -o <log> slurm/level_paths.sbatch
 source "${OPTSPLIT_CODE:-$PWD}/slurm/env.sh" || exit 1
@@ -37,7 +39,8 @@ set -x
 
 siblings() { squeue -u $USER -h -n "$SLURM_JOB_NAME" -t PD -o %i; }
 if [ "${GROUP:-0}" = 1 ]; then
-    squeue -u $USER -h -n "$SLURM_JOB_NAME" -t R -o %i | grep -vxq "$SLURM_JOB_ID" && { echo "a job of $SLURM_JOB_NAME runs"; exit 0; }
+    squeue -u $USER -h -n "$SLURM_JOB_NAME" -t R -o %i | awk -v me=$SLURM_JOB_ID '$1 < me' | grep -q . &&
+        { echo "a job of $SLURM_JOB_NAME runs"; exit 0; }
     for j in $(siblings); do scontrol hold $j; done
     trap 'for j in $(siblings); do scontrol release $j; done' EXIT
 fi
