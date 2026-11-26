@@ -21,7 +21,9 @@ import contextlib
 import json
 import math
 import os
+import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -306,29 +308,44 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         return o.loss(a), o.loss(b)
 
     def string(X, k):
-        """k steps of a stochastic string method: on a fresh group of sequences, each point takes an Adam step on
-        (L_i - c_i)^2 / 2 (descent to the level set, like training; from below it climbs), then moves by beta times
-        the discrete Laplacian of the path minus its component along the point's loss gradient (curve shortening
-        within the level set; it also evens out the spacing). Both step sizes warm up over the first 10% of the
-        steps and decay to 0 over the last 30%."""
+        """At most k steps of a stochastic string method: on a fresh group of sequences, each point takes an Adam step
+        on (L_i - c_i)^2 / 2 (descent to the level set, like training; from below it climbs), then moves by beta
+        times the discrete Laplacian of the path minus its component along the point's loss gradient (curve
+        shortening within the level set; it also evens out the spacing). Both step sizes warm up over the first 10%
+        of the steps and then decay linearly to 0, over the last 30% of the k steps or, once the max |L - c| at the
+        points on the check set and the path length have stopped changing over the last 100 steps, over the next
+        quarter of the steps taken so far (early stop)."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
-        for t in range(1, k + 1):
+        warm, stop, decay, chk = 0.1 * k, int(0.7 * k), k - int(0.7 * k), []
+        t = 0
+        while t < stop + decay:
+            t += 1
             c = targets(*ends(obj_string), len(X))
             L, G = evaluate(obj_string, X)
             g = torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G
             mom.lerp_(g, 0.1)
             sq.lerp_(g * g, 0.01)
-            f = min(1.0, t / (0.1 * k), (k - t) / (0.3 * k))
+            f = min(1.0, t / warm) if t <= stop else max(0.0, 1 - (t - stop) / decay)
             P = torch.cat([a[None], X, b[None]])
             lap = P[:-2] + P[2:] - 2 * X
             u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
             lap -= (lap * u).sum(1, keepdim=True) * u
             X = X - f * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.99 ** t)).sqrt() + 1e-8) + f * beta * lap
             del P, lap, u, G
-            if t % max(1, k // 20) == 0 or t == k:
+            if t <= stop and t % 50 == 0 and t > warm:  # early stop: flat over the last 100 steps
+                cc = targets(ca_check, cb_check, len(X))
+                dev = float(np.abs(np.array([obj_check.loss(x) for x in X]) - cc).max())
+                chk.append((dev, float(lengths(X, a, b).sum() / D)))
+                log(f"string n={len(X)} t={t}: max|L-c| at the points {dev:.4f} (check set), ratio {chk[-1][1]:.5f}")
+                if len(chk) >= 3:
+                    (d0, r0), (d1, r1) = chk[-3], chk[-1]
+                    if abs(d1 - d0) < max(0.005, 0.05 * d0) and abs(r1 - r0) < max(2e-5, 0.05 * (r0 - 1)):
+                        stop, decay = t, max(20, t // 4)
+                        log(f'string: flat, decaying over {decay} steps')
+            if t % 50 == 0 or t == stop + decay:
                 hist.append(dict(phase='string', n=len(X), t=t, max_r=float(np.abs(L - c).max()),
                                  ratio=float(lengths(X, a, b).sum() / D), time=time.time() - t0))
-                log(f"string n={len(X)} t={t}/{k}: max|L-c| {hist[-1]['max_r']:.4f} (batch, before the step), "
+                log(f"string n={len(X)} t={t}: max|L-c| {hist[-1]['max_r']:.4f} (batch, before the step), "
                     f"ratio {hist[-1]['ratio']:.5f} ({hist[-1]['time']:.0f}s)")
         return X
 
@@ -492,19 +509,25 @@ def level_walk(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, 
 # ---------------------------------------------------------------- CLI
 
 def claim(out):
-    """True if this job may compute `out`: it does not exist and no other running Slurm job holds its lock (so that
-    several jobs can share the list of outputs; a requeued job keeps its id and takes its own lock back; a pending,
-    e.g. preempted, job holds no lock)."""
+    """True if this process may compute `out`: it does not exist and nobody else holds its lock. A lock names the
+    Slurm job, host and process: it is held while that process runs (same job: several workers share a job) or, for
+    another job, while that job runs (a pending, e.g. preempted, job holds none; a requeued job takes its locks back)."""
     out = Path(out)
     if out.exists():
         return False
-    lock, me = out.with_suffix('.lock'), os.environ.get('SLURM_JOB_ID', 'local')
-    if lock.exists():
-        other = lock.read_text().strip()
-        if other != me and other != 'local' and subprocess.run(['squeue', '-h', '-t', 'R', '-j', other],
-                                                                capture_output=True, text=True).stdout.strip():
-            return False
     out.parent.mkdir(parents=True, exist_ok=True)
+    lock, job, host = out.with_suffix('.lock'), os.environ.get('SLURM_JOB_ID', 'local'), socket.gethostname()
+    me = f'{job}:{host}:{os.getpid()}'
+    try:
+        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))  # atomic: two workers cannot both create it
+    except FileExistsError:
+        o_job, o_host, o_pid = (lock.read_text().strip().split(':') + ['', ''])[:3]
+        if o_job == job:
+            if o_host == host and o_pid.isdigit() and int(o_pid) != os.getpid() and Path(f'/proc/{o_pid}').exists():
+                return False
+        elif o_job != 'local' and subprocess.run(['squeue', '-h', '-t', 'R', '-j', o_job], capture_output=True,
+                                                 text=True).stdout.strip():
+            return False
     lock.write_text(me)
     return True
 
@@ -700,6 +723,91 @@ def cmd_run(args):
                 release(f)
 
 
+def task_list(A, args):
+    """The work of results/level_paths.tex in priority order, as (tier, kind, select file, output dir, level, pair, n,
+    perturbation seed). The late level uses the ts10m_main checkpoints (select_main.json); the other levels use the
+    reruns (select.json, levels in the order of slurm/level_paths.sbatch: 1.81, 1.6, 2.1, 2.4, 2.7, late).
+    Tier 1: profiles and N=10 bands at the late level, 1.81 and 2.4; tier 2: the same at 1.6, 2.1 and 2.7; tier 3:
+    N=20 bands, bent starts and walks at these six levels; tier 4: everything at the reruns' late level."""
+    main, rr = (A / 'select_main.json', A / 'main'), (A / 'select.json', A / 'rerun')
+    lv = list(json.loads(rr[0].read_text())) if rr[0].exists() else []
+    at = lambda idx: [(rr, lv[i]) for i in idx if i < len(lv)]
+    first = [(main, level) for level in json.loads(main[0].read_text())] + at([0, 3])
+    second, last = at([1, 2, 4]), at([5])
+    T = []
+    for tier, group in ((1, first), (2, second)):
+        for (sel, d), level in group:
+            T += [(tier, 'profile', sel, d, level, pair, None, None) for pair in PAIRS]
+            T += [(tier, 'band', sel, d, level, pair, 10, None) for pair in PAIRS]
+    for (sel, d), level in first + second:
+        T += [(3, 'band', sel, d, level, pair, 20, None) for pair in PAIRS]
+    T += [(3, 'band', *rr, level, 'adamw-muon_d0', args.n, seed) for _, level in at([0]) for seed in (1, 2)]
+    T += [(3, 'walk', sel, d, level, pair, None, None) for (sel, d), level in first + second for pair in PAIRS]
+    for (sel, d), level in last:
+        T += [(4, kind, sel, d, level, pair, n, None) for kind, n in (('profile', None), ('band', 10), ('band', 20),
+                                                                     ('walk', None)) for pair in PAIRS]
+    return T
+
+
+def task_out(t, args):
+    _, kind, _, d, level, pair, n, seed = t
+    name = f'{level}_{pair}'
+    if kind == 'profile':
+        return d / 'profile' / f'{name}.json'
+    if kind == 'walk':
+        return d / 'walk' / f'{name}_mu{args.mu:g}.json'
+    return d / 'band' / (f'{name}_n{n}.json' if seed is None else f'{name}_n{n}_perturb{args.perturb}_s{seed}.json')
+
+
+def reruns_alive(A):
+    """Something is still making the reruns or the selection: a file of the reruns or the selection lock changed in
+    the last 20 minutes."""
+    recent = lambda f: time.time() - f.stat().st_mtime < 1200
+    R = Path(os.environ['OPTSPLIT_ROOT']) / 'runs' / 'ts10m_level_paths'
+    lock = A / 'select.lock'
+    return (lock.exists() and recent(lock)) or any(recent(f) for f in R.rglob('*') if f.exists())
+
+
+def cmd_work(args):
+    """One worker: repeatedly takes the first task of task_list (tiers <= --max-tier) that nobody holds and does it.
+    While select.json is missing, waits (checking every minute that the reruns or the selection are progressing).
+    Writes tier1_done when every tier-1 output exists. Exit 0: nothing left to take; 3: the reruns are not ready
+    and nothing is making them."""
+    A = Path(args.dir)
+    model = sets = None
+    while True:
+        T = [t for t in task_list(A, args) if t[0] <= args.max_tier]
+        for t in T:
+            f = task_out(t, args)
+            if not claim(f):
+                continue
+            _, kind, sel, _, level, pair, n, seed = t
+            sa_, sb_, _ = json.loads(sel.read_text())[level]['pairs'][pair]
+            if model is None:
+                model, sets = _setup_from(sa_, args)
+            print(f'task: tier {t[0]} {kind} {level} {pair} n={n} seed={seed} -> {f}', flush=True)
+            if kind == 'profile':
+                do_profile(model, sets, sa_, sb_, args, f)
+            elif kind == 'walk':
+                do_walk(model, sets, sa_, sb_, args, f)
+            else:
+                do_band(model, sets, sa_, sb_, args, f, n=n, perturb=args.perturb if seed else 0.0,
+                        perturb_seed=seed or 1)
+            release(f)
+            if (A / 'select.json').exists() and not (A / 'tier1_done').exists() and \
+                    all(task_out(u, args).exists() for u in task_list(A, args) if u[0] == 1):
+                (A / 'tier1_done').write_text(time.strftime('%Y-%m-%d %H:%M:%S\n'))
+                print('TIER 1 DONE', flush=True)
+            break
+        else:  # nothing to take now
+            if (A / 'select.json').exists():
+                return 0
+            if not reruns_alive(A):
+                print('reruns not ready and nothing is making them', flush=True)
+                sys.exit(3)
+            time.sleep(60)
+
+
 STYLE = {'adamw-muon_d0': dict(color='C0', label='AdamW vs Muon, same data order'),
          'adamw-muon_d1': dict(color='C0'),
          'adamw_d0-d1': dict(color='0.25', label='AdamW, two data orders'),
@@ -864,6 +972,11 @@ def main():
     s.add_argument('--perturb-seed', type=int, default=1)
     s.add_argument('--out', required=True)
     s.add_argument('--save-points')
+    s = sub.add_parser('work')
+    s.add_argument('dir', help='the analysis directory (select_main.json, select.json, outputs)')
+    s.add_argument('--max-tier', type=int, default=4)
+    s.add_argument('--perturb', type=float, default=0.1)
+    band_args(s)
     s = sub.add_parser('run')
     s.add_argument('select')
     s.add_argument('--out-dir', required=True)
@@ -879,7 +992,7 @@ def main():
     args = p.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = False
     {'losses': cmd_losses, 'select': cmd_select, 'prune': cmd_prune, 'profile': cmd_profile, 'band': cmd_band,
-     'run': cmd_run, 'plot': cmd_plot, 'table': cmd_table}[args.cmd](args)
+     'run': cmd_run, 'work': cmd_work, 'plot': cmd_plot, 'table': cmd_table}[args.cmd](args)
 
 
 if __name__ == '__main__':
