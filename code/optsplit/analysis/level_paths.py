@@ -4,10 +4,10 @@
 - `profile`: loss along the straight line (1-t) theta_A + t theta_B; its highest rise above c and deepest dip below.
 - `band`: elastic band. N points theta_1..theta_N between the fixed endpoints theta_0 = theta_A, theta_{N+1} = theta_B
   minimise E_w = w sum_i ((L_i - c_i) / tol)^2 + sum_k |theta_{k+1} - theta_k|^2 / (D^2 / (N+1)), D = |theta_A - theta_B|,
-  c_i interpolated linearly between the endpoint losses. Each iteration is a Gauss-Newton step on E_w (exact for the
-  springs, linearised loss), with backtracking; w grows over stages. Then the loss is checked densely along every
-  segment; segments that leave c +- tol get a midpoint and the band continues. Output: path length / D and the loss
-  along the path, on the path set and on a held-out set.
+  c_i interpolated linearly between the endpoint losses. Each iteration is a Levenberg-Marquardt step on E_w (exact
+  for the springs, linearised loss) on a fresh group of training sequences (so that the path cannot fit one fixed
+  set); w grows over stages. Then the loss on a held-out set is checked densely along every segment; segments that
+  leave c +- tol get a midpoint and the band continues. Output: path length / D and the loss along the path.
 
 python -m optsplit.analysis.level_paths losses 'ts10m_main/adamw_d0' --steps 9000 10000 --out f.json
 python -m optsplit.analysis.level_paths profile ts10m_main/adamw_d0:10000 ts10m_main/muon_d0:8000 --out p.json
@@ -34,11 +34,18 @@ PATH_SEED, HELDOUT_SEED = 101, 102  # fixed training sequences (the probe uses s
 
 
 class Objective:
-    """Mean loss on fixed batches as a function of the flat parameter vector of `model`."""
+    """Mean loss on fixed batches as a function of the flat parameter vector of `model`. With `groups` (several lists
+    of batches), rotate() moves to the next group: the band and the walk take a fresh group at every iteration, so
+    that the path cannot fit one fixed set of sequences."""
 
-    def __init__(self, model, batches, fp32=True):
+    def __init__(self, model, batches, fp32=True, groups=None):
         self.model, self.batches, self.fp32 = model, batches, fp32
         self.params = list(model.parameters())
+        self.groups, self.g = groups, 0
+
+    def rotate(self):
+        self.g = (self.g + 1) % len(self.groups)
+        self.batches = self.groups[self.g]
 
     @contextlib.contextmanager
     def _precision(self):
@@ -123,17 +130,19 @@ class Objective:
         return torch.cat(out).cpu()
 
 
-def setup(cfg, n_seqs, device, chunk=64):
+def setup(cfg, n_seqs, device, chunk=64, pool=1):
     """Model; the path set and the held-out set (n_seqs training sequences each, in chunks); the probe's training
-    sequences, on which the training loss of Fig. 1 is measured."""
+    sequences, on which the training loss of Fig. 1 is measured; the pool: the path set and pool - 1 more groups of
+    n_seqs sequences, which the band and walk iterations cycle through."""
     from optsplit.data import build_data
     data = build_data(cfg, device)
     model = build_model(cfg, vocab_size=data.vocab_size).to(device).eval()
     sets = []
-    for n, seed in ((n_seqs, PATH_SEED), (n_seqs, HELDOUT_SEED), (cfg.probe.train_seqs, 0)):
+    seeds = [(n_seqs, PATH_SEED), (n_seqs, HELDOUT_SEED), (cfg.probe.train_seqs, 0)]
+    for n, seed in seeds + [(n_seqs, 1000 + j) for j in range(1, pool)]:
         x, y = data.fixed_batch('train', n, seed)
         sets.append([(x[i:i + chunk], y[i:i + chunk]) for i in range(0, n, chunk)])
-    return model, sets
+    return model, sets[:3] + [sets[:1] + sets[3:]]
 
 
 def load_theta(spec, device):
@@ -279,19 +288,29 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     D = float((a - b).norm())
     X = straight(a, b, n) if init is None else init.clone()
     hist, t0 = [], time.time()
+    rotating = len(getattr(obj, 'groups', None) or []) > 1
+
+    def ends():  # endpoint losses on the current group of sequences (after moving to the next one)
+        if not rotating:
+            return ca, cb
+        obj.rotate()
+        return obj.loss(a), obj.loss(b)
 
     lam = [1.0]  # Levenberg-Marquardt damping, adapted: /3 after an accepted step, x4 after a rejected one
 
     def run_stage(X, w, k, ramp=0):
         """k iterations at weight w. With ramp > 0 the targets start at the current losses and reach c_i linearly
         over the first `ramp` iterations (a continuation, so that each step's linearisation stays accurate)."""
-        n = len(X)
-        c_end = targets(ca, cb, n)
-        L, G = evaluate(obj, X)
-        L0 = L.copy()
+        n, dev0 = len(X), None
         for j in range(k):
+            c_end = targets(*ends(), n)
+            if rotating or j == 0:
+                L, G = evaluate(obj, X)
+            if dev0 is None:
+                dev0 = L - c_end
+                ramp = ramp if np.abs(dev0).max() > tol / 10 else 0  # already at c: no continuation
             s = min(1.0, (j + 1) / ramp) if ramp else 1.0
-            c = c_end + (1 - s) * (L0 - c_end)
+            c = c_end + (1 - s) * dev0
             E = merit(X, a, b, L, c, w, tol)
             for _ in range(12):
                 Xn = lm_target(X, a, b, L, G, c, w, tol, lam[0])
@@ -306,12 +325,15 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                     break  # no step lowers E_w: converged at this w
                 continue
             X = Xn
-            L, G = evaluate(obj, X)
+            if not rotating:
+                L, G = evaluate(obj, X)
             seg = lengths(X, a, b)
-            hist.append(dict(n=n, w=w, s=s, lam=lam[0], E=En, max_r=float(np.abs(L - c_end).max()),
+            hist.append(dict(n=n, w=w, s=s, lam=lam[0], E=En, max_r=float(np.abs(Ln - c_end).max()),
                              ratio=float(seg.sum() / D), time=time.time() - t0))
             log(f"n={n} w={w:g} s={s:.2f} lam={lam[0]:.3g} E={En:.4g} max|L-c|={hist[-1]['max_r']:.4f} "
                 f"ratio={hist[-1]['ratio']:.5f} ({hist[-1]['time']:.0f}s)")
+            if s == 1 and E - En < 1e-4 * E:
+                break  # converged at this w
         return X
 
     stages = []
@@ -392,6 +414,9 @@ def level_walk(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, 
     for k in range(3 * steps):
         if float((x - b).norm()) <= eta:
             break
+        if len(getattr(obj, 'groups', None) or []) > 1:  # a fresh group of sequences for each step
+            obj.rotate()
+            ca, cb = obj.loss(a), obj.loss(b)
         L, g = obj.loss_grad(x)
         v = (b - x) / (b - x).norm()
         d = cg(lambda u: u + obj.hvp(x, u) / mu, v, cg_iters)
@@ -446,14 +471,14 @@ def release(out):
 
 def _setup_from(spec, args):
     run = Run(spec.rsplit(':', 1)[0])
-    model, sets = setup(run.cfg, args.n_seqs, args.device, args.chunk)
+    model, sets = setup(run.cfg, args.n_seqs, args.device, args.chunk, args.pool)
     check_order(model, spec, args.device)
     return model, sets
 
 
 def cmd_losses(args):
     runs = load_runs(args.runs)
-    model, (path_set, _, _) = setup(runs[0].cfg, args.n_seqs, args.device, args.chunk)
+    model, (path_set, _, _, _) = setup(runs[0].cfg, args.n_seqs, args.device, args.chunk)
     obj = Objective(model, path_set)
     out = {}
     for r in runs:
@@ -482,7 +507,7 @@ def scale_free(model, a, b, init):
 
 
 def do_profile(model, sets, sa_, sb_, args, out):
-    path_set, held, probe = sets
+    path_set, held, probe, _ = sets
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
     init = load_theta(sa_.rsplit(':', 1)[0] + ':0', args.device)
     obj = Objective(model, path_set)
@@ -502,10 +527,11 @@ def do_profile(model, sets, sa_, sb_, args, out):
 
 
 def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=1, points_out=None):
-    path_set, held, _ = sets
+    path_set, held, _, pool = sets
     n = n or args.n
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
-    fast, exact, hold = Objective(model, path_set, fp32=False), Objective(model, path_set), Objective(model, held)
+    # iterations on the pool (a fresh group of sequences each), the dense check on the held-out set
+    fast, held = Objective(model, path_set, fp32=False, groups=pool), Objective(model, held)
     ca, cb = fast.loss(a), fast.loss(b)
     init = None
     if perturb:  # a bent initial guess: straight line + perturb * D * sin(pi t) * (random unit direction)
@@ -513,17 +539,17 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
         t = torch.arange(1, n + 1, device=a.device)[:, None] / (n + 1)
         init = straight(a, b, n) + perturb * float((a - b).norm()) * torch.sin(math.pi * t) * u / u.norm()
     print(f'band {sa_} -> {sb_}, N={n}, perturb={perturb}', flush=True)
-    X, res = band(fast, a, b, ca, cb, obj_check=exact, ca_check=exact.loss(a), cb_check=exact.loss(b), n=n,
+    X, res = band(fast, a, b, ca, cb, obj_check=held, ca_check=held.loss(a), cb_check=held.loss(b), n=n,
                   ws=args.ws, iters=args.iters, tol=args.tol, rounds=args.rounds, round_iters=args.round_iters,
                   m=args.m, init=init, log=lambda s: print(s, flush=True))
-    hl = np.array([hold.loss(x) for x in [a, *X, b]])
-    hc = hl[0] + (hl[-1] - hl[0]) * np.linspace(0, 1, len(hl))
-    res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, heldout=hl.tolist(), perturb=perturb, perturb_seed=perturb_seed,
-               heldout_max_dev=float(np.abs(hl - hc).max()))
+    pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
+    pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
+    res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
+               perturb_seed=perturb_seed, pathset_max_dev=float(np.abs(pl - pc).max()))
     f, v = res['fixed'], res['valid']
     print(f"fixed N={f['n']}: ratio {f['ratio']:.5f}, pred {f['pred_ratio']:.4f}, max dev {f['max_dev']:.4f}; "
-          f"valid N={v['n']}: ratio {v['ratio']:.5f}, pred {v['pred_ratio']:.4f}, max dev {v['max_dev']:.4f}; "
-          f"held-out max dev {res['heldout_max_dev']:.4f}", flush=True)
+          f"valid N={v['n']}: ratio {v['ratio']:.5f}, pred {v['pred_ratio']:.4f}, max dev {v['max_dev']:.4f} "
+          f"(held-out set); path set max dev at the points {res['pathset_max_dev']:.4f}", flush=True)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(res, indent=1))
     if points_out:
@@ -531,12 +557,12 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
 
 
 def do_walk(model, sets, sa_, sb_, args, out):
-    path_set, _, _ = sets
+    path_set, held, _, pool = sets
     a, b = load_theta(sa_, args.device), load_theta(sb_, args.device)
-    fast, exact = Objective(model, path_set, fp32=False), Objective(model, path_set)
+    fast, held = Objective(model, path_set, fp32=False, groups=pool), Objective(model, held)
     print(f'walk {sa_} -> {sb_}, mu={args.mu}', flush=True)
-    X, res = level_walk(fast, a, b, fast.loss(a), fast.loss(b), obj_check=exact, ca_check=exact.loss(a),
-                        cb_check=exact.loss(b), steps=args.walk_steps, mu=args.mu, cg_iters=args.cg_iters, tol=args.tol,
+    X, res = level_walk(fast, a, b, fast.loss(a), fast.loss(b), obj_check=held, ca_check=held.loss(a),
+                        cb_check=held.loss(b), steps=args.walk_steps, mu=args.mu, cg_iters=args.cg_iters, tol=args.tol,
                         m=args.m, log=lambda s: print(s, flush=True))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs)
     print(f"walk: ratio {res['ratio']:.5f}, reached {res['reached']}, pred {res['pred_ratio']:.4f}, "
@@ -752,6 +778,8 @@ def main():
     p.add_argument('--n-seqs', type=int, default=512, help='training sequences in the path set and the held-out set')
     p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     p.add_argument('--chunk', type=int, default=64, help='sequences per forward pass (memory)')
+    p.add_argument('--pool', type=int, default=16, help='groups of n_seqs sequences that band and walk iterations '
+                   'cycle through (1: the path set only); paths are checked on the held-out set')
     sub = p.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('losses')
     s.add_argument('runs', nargs='+')

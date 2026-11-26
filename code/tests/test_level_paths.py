@@ -60,10 +60,12 @@ def test_band_follows_a_circular_level_set(sign):
     assert res['ratio'] == pytest.approx(angle / (2 * math.sin(angle / 2)), rel=0.01)
 
 
-def test_band_respects_the_constraint_on_a_tiny_gpt():
+@pytest.mark.parametrize('rotate', [False, True])
+def test_band_respects_the_constraint_on_a_tiny_gpt(rotate):
     """Two tiny GPTs trained from one initialization on two data orders (the straight line between them rises by
     about 0.3): every point and every segment of the band stays within tol of c_i, which is interpolated between the
-    two endpoint losses, and the band is longer than the straight line."""
+    two endpoint losses, and the band is longer than the straight line. rotate: the iterations cycle through two
+    groups of batches (here the same sequences in two orders)."""
     cfg = load_config(None, {'task': 'gpt', 'model': {'block_size': 8, 'n_layer': 1, 'n_head': 2, 'n_embd': 8}})
     seqs = torch.randint(0, 11, (64, 9), generator=torch.Generator().manual_seed(1))
     batches = [(seqs[i:i + 16, :-1], seqs[i:i + 16, 1:]) for i in range(0, 64, 16)]
@@ -81,7 +83,7 @@ def test_band_respects_the_constraint_on_a_tiny_gpt():
         return torch.cat([p.detach().reshape(-1) for p in m.parameters()])
 
     a, b = trained(1), trained(2)
-    obj = Objective(build_model(cfg, vocab_size=11), batches)
+    obj = Objective(build_model(cfg, vocab_size=11), batches, groups=[batches, batches[::-1]] if rotate else None)
     ca, cb = obj.loss(a), obj.loss(b)
     assert profile(obj, a, b)['rise'] > 0.2
     X, res = band(obj, a, b, ca, cb, n=10, tol=0.01, log=quiet)
