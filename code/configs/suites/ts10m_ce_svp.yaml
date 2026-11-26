@@ -25,5 +25,5 @@ runs:
      log.preds: true, log.ckpt_steps: {every: 1000, geometric: 0, extra: [600, 800, 1250, 1500]}}
   - {optim.muon.lr: 0.01, optim.muon.sv_power: -0.3, train.data_seed: [0, 1, 2],
      log.preds: true, log.ckpt_steps: {every: 1000, geometric: 0, extra: [600, 800, 1250, 1500]},
-     log.two_track_check: [10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]}
+     log.two_track_check: [[10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]]}
   - {optim.muon.lr: 0.005, optim.muon.sv_power: [-1.0, -0.75, -0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0}
