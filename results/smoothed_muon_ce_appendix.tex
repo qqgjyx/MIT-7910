@@ -81,3 +81,18 @@ Aux.\ weight decay & -- & none & none \tabularnewline
 \hline
 \end{tabular}
 \end{center}
+
+\section{Calibration of smoothed Muon}
+\label{app:calib}
+
+We chose $a$ from short runs on data order 0 at Muon's learning rate, $\eta=0.01$: as in \cref{tab:app-shared}, but
+without Hessian measurements and stopped at step 2002 (the learning-rate schedule is that of 10{,}000 steps). The cosine
+between consecutive updates, $\cos(\Delta\theta_t,\Delta\theta_{t+1})$ with $\Delta\theta_t=\theta_{t+1}-\theta_t$,
+comes from checkpoints at $t,t+1,t+2$, for eight values of $t$ from 400 to 2000. \Cref{tab:calib} gives it at training
+loss 1.81, interpolated between the checkpoints at steps 800 and 1000, where every short run passes that loss. It barely
+changes over these steps: for each $a<1$, its eight values lie within 0.008 of each other (Muon: 0.731 to 0.749).
+
+\Cref{tab:calib} also gives the cosine for the 36 weight matrices of the blocks alone. These are the only parameters
+whose update rule differs between Muon and smoothed Muon; AdamW trains the others under all three optimizers. With
+$a=0.65$ the block matrices also match AdamW (0.877 against 0.876). The run with $a=1$ repeats Muon's run exactly: its
+validation loss at step 2000 is Muon's, 1.5878.
