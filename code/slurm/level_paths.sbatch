@@ -22,9 +22,8 @@ command -v python > /dev/null || { echo "no python: slurm/env.sh not found from 
 cd "$OPTSPLIT_CODE"
 R=$OPTSPLIT_ROOT/runs/ts10m_level_paths
 A=$OPTSPLIT_ROOT/analysis/level_paths
-# the AdamW d0 checkpoints whose loss defines each level: the centres of the rerun windows (training loss 1.81, 1.6,
-# 2.1, 2.4, 2.7 on the probe) and the final AdamW checkpoint
-LEVELS="1440 3300 680 397 272 10000"
+# the AdamW d0 checkpoints whose loss defines each level (tiers: optsplit.analysis.level_paths.TIERS)
+LEVELS="397 5000 1440 3300 7500 272 680 10000"
 GPU=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)
 MEM=${GPU##*, }
 if [ "$MEM" -ge 70000 ]; then W=4; elif [ "$MEM" -ge 45000 ]; then W=3; else W=2; fi

@@ -664,7 +664,7 @@ def cmd_select(args):
             steps = {int(s): l for s, l in losses[f'{suite}/{run}'].items() if int(s) > 0}
             s = min(steps, key=lambda s: abs(steps[s] - c))
             pick[run] = (f'{suite}/{run}:{s}', steps[s])
-        out[f'{c:.3f}'] = dict(c=c, pick=pick, pairs={k: [pick[x][0], pick[y][0], abs(pick[x][1] - pick[y][1])]
+        out[f'{c:.3f}'] = dict(ref=level, c=c, pick=pick, pairs={k: [pick[x][0], pick[y][0], abs(pick[x][1] - pick[y][1])]
                                                        for k, (x, y) in PAIRS.items()})
         print(f'c={c:.4f}: ' + ', '.join(f'{r} {s.split(":")[1]} ({l - c:+.4f})' for r, (s, l) in sorted(pick.items())))
     Path(args.out).write_text(json.dumps(out, indent=1))
@@ -723,29 +723,36 @@ def cmd_run(args):
                 release(f)
 
 
+# the rerun levels, by the AdamW d0 step that defines them -> tier of their profiles and N=10 bands (the late level,
+# from the ts10m_main checkpoints, is tier 1); 1 and 2: the six levels spread over training; 4, 5: extra levels
+TIERS = {397: 1, 5000: 1, 1440: 2, 3300: 2, 7500: 2, 272: 4, 680: 4, 10000: 5}
+
+
 def task_list(A, args):
     """The work of results/level_paths.tex in priority order, as (tier, kind, select file, output dir, level, pair, n,
-    perturbation seed). The late level uses the ts10m_main checkpoints (select_main.json); the other levels use the
-    reruns (select.json, levels in the order of slurm/level_paths.sbatch: 1.81, 1.6, 2.1, 2.4, 2.7, late).
-    Tier 1: profiles and N=10 bands at the late level, 1.81 and 2.4; tier 2: the same at 1.6, 2.1 and 2.7; tier 3:
-    N=20 bands, bent starts and walks at these six levels; tier 4: everything at the reruns' late level."""
+    perturbation seed). The late level uses the ts10m_main checkpoints (select_main.json), the others the reruns
+    (select.json; a level's 'ref' is the AdamW d0 checkpoint that defines it). Tier 1: profiles and N=10 bands at the
+    late level and at AdamW steps 5000 and 397; tier 2: the same at steps 1440, 3300 and 7500; tier 3: N=20 bands,
+    bent starts (step 1440, AdamW vs Muon, order 0) and walks at these six levels; tier 4: everything at steps 272
+    and 680; tier 5: everything at the reruns' late level (step 10000)."""
     main, rr = (A / 'select_main.json', A / 'main'), (A / 'select.json', A / 'rerun')
-    lv = list(json.loads(rr[0].read_text())) if rr[0].exists() else []
-    at = lambda idx: [(rr, lv[i]) for i in idx if i < len(lv)]
-    first = [(main, level) for level in json.loads(main[0].read_text())] + at([0, 3])
-    second, last = at([1, 2, 4]), at([5])
+    sel = json.loads(rr[0].read_text()) if rr[0].exists() else {}
+    step = {level: int(v['ref'].rsplit(':', 1)[1]) for level, v in sel.items()}
+    by_tier = lambda k: sorted((l for l in sel if TIERS.get(step[l]) == k), key=lambda l: list(TIERS).index(step[l]))
+    levels = {k: [(rr, l) for l in by_tier(k)] for k in (1, 2, 4, 5)}
+    levels[1] = [(main, l) for l in json.loads(main[0].read_text())] + levels[1]
+    six = levels[1] + levels[2]
     T = []
-    for tier, group in ((1, first), (2, second)):
-        for (sel, d), level in group:
-            T += [(tier, 'profile', sel, d, level, pair, None, None) for pair in PAIRS]
-            T += [(tier, 'band', sel, d, level, pair, 10, None) for pair in PAIRS]
-    for (sel, d), level in first + second:
-        T += [(3, 'band', sel, d, level, pair, 20, None) for pair in PAIRS]
-    T += [(3, 'band', *rr, level, 'adamw-muon_d0', args.n, seed) for _, level in at([0]) for seed in (1, 2)]
-    T += [(3, 'walk', sel, d, level, pair, None, None) for (sel, d), level in first + second for pair in PAIRS]
-    for (sel, d), level in last:
-        T += [(4, kind, sel, d, level, pair, n, None) for kind, n in (('profile', None), ('band', 10), ('band', 20),
-                                                                     ('walk', None)) for pair in PAIRS]
+    for tier in (1, 2):
+        for (f, d), level in levels[tier]:
+            T += [(tier, 'profile', f, d, level, pair, None, None) for pair in PAIRS]
+            T += [(tier, 'band', f, d, level, pair, 10, None) for pair in PAIRS]
+    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six for pair in PAIRS]
+    T += [(3, 'band', *rr, l, 'adamw-muon_d0', args.n, seed) for l in sel if step[l] == 1440 for seed in (1, 2)]
+    T += [(3, 'walk', f, d, level, pair, None, None) for (f, d), level in six for pair in PAIRS]
+    for tier in (4, 5):
+        T += [(tier, kind, f, d, level, pair, n, None) for (f, d), level in levels[tier]
+              for kind, n in (('profile', None), ('band', 10), ('band', 20), ('walk', None)) for pair in PAIRS]
     return T
 
 
