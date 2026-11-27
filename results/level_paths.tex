@@ -28,18 +28,16 @@
 \textbf{Answer.} At every loss level from 3\% to 100\% of AdamW's training, AdamW and Muon (same initialization,
 same data order) are farther apart than two runs of one optimizer that differ only in data order. We call the latter
 pair the \emph{floor}: it shows how far apart runs land by chance. Up to 75\% of training, AdamW and Muon are still
-joined by a path whose loss stays within 0.1 nats of the level.
+joined by a path whose loss stays within 0.1 nats of the level. At 100\%, only the floor's paths stay within 0.1 nats
+(AdamW--Muon: 0.11--0.13).
 \begin{itemize}\setlength{\itemsep}{0pt}
 \item \textbf{Farther apart.} Their distance, divided by the mean distance each model travelled from the
 initialization, is 1.13--1.39 against 0.67--1.24 for the floor. Along the straight line between them the loss rises
 0.4--3.9 nats above the level, against 0--1.6 for the floor (\cref{fig:line}).
-\item \textbf{Path lengths tell AdamW--Muon from the floor only at 4--14\%.} There, the AdamW--Muon path is longer than the floor's at
-every level: 0.2--1.2\% longer than the straight line against at most 0.3\% with 10 points, and 1.4--5.8\% against at
-most 1.6\% with 20 (\cref{fig:robust}). At 3\% this holds with 10 points but not with 20. From 33\% on, the floor's 20-point paths are as long as AdamW--Muon's. These later lengths mostly
+\item \textbf{Path lengths tell AdamW--Muon from the floor only at 4--7\%.} There, the AdamW--Muon path is longer than the floor's at
+every level: 0.2--1.2\% longer than the straight line against at most 0.02\% with 10 points, and 1.4--5.8\% against at
+most 0.2\% with 20 (\cref{fig:robust}). At 3\% and from 14\% to 50\%, this holds with 10 points but not with 20. From 33\% on, the floor's 20-point paths are as long as AdamW--Muon's. These later lengths mostly
 measure how far the optimizer wandered inside the level set, not the landscape.
-\item \textbf{AdamW--Muon paths stay on the level less often.} From 14\% to 75\% of training, 12 of 16 floor paths
-stayed within 0.02 nats of the level, against 4 of 16 AdamW--Muon paths (10 and 20 points). At 100\%, only the floor's
-paths stayed within 0.1 nats (AdamW--Muon: 0.11--0.13).
 \end{itemize}
 
 \begin{figure}[H]
@@ -47,8 +45,8 @@ paths stayed within 0.1 nats (AdamW--Muon: 0.11--0.13).
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths.pdf}
 \caption{Constant-loss paths ($N=10$ points) against the loss level; the labels on top give the level as a
 fraction of AdamW's training. Blue: AdamW vs Muon, same data order. Grey: the floor, two data orders of one
-optimizer. Top row: paths valid at $\tau = 0.02$ nats; bottom row: at $\tau = 0.1$. (a, c) Path length in weights
-over the straight-line distance, minus 1 (log scale); only valid paths. (b, d) Gap: the largest held-out deviation of
+optimizer. Valid paths stay within $\tau = 0.1$ nats of the level. (a) Path length in weights over the
+straight-line distance, minus 1 (log scale), for the shortest valid path. (b) Gap: the largest held-out deviation of
 the loss from its target along the path, for the pair's best 10-point run; dotted: $\tau$; open markers: no valid path.}
 \end{figure}
 
@@ -64,14 +62,14 @@ the loss from its target along the path, for the pair's best 10-point run; dotte
 \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
 \caption{Per level and pair (``AdamW--Muon, 0'': both on data order 0; ``AdamW, 0--1'': AdamW on orders 0 and 1):
 the straight line (rise: largest loss excess in nats; D/init: distance over the mean distance travelled from
-initialization), and the 10-point constant-loss path valid at $\tau = 0.02$ and $0.1$ (detour in \%; --: no valid
-path; gap in nats). Steps: string-method steps of the
-$\tau = 0.02$ run (at most $6000 + 2500 + 4 \times 300$).}
-\begin{tabular}{@{}llrrrrrrr@{}}
+initialization), and the shortest 10-point constant-loss path valid at $\tau = 0.1$ (detour in \%; --: no valid path; gap: the
+smallest over the pair's runs, in nats). Steps: string-method steps behind that path, continuations included
+(without a valid path: behind the run with the smallest gap; at most $6000 + 2500 + 4 \times 300$).}
+\begin{tabular}{@{}llrrrrr@{}}
 \toprule
-& & \multicolumn{2}{c}{straight line} & \multicolumn{2}{c}{$\tau = 0.02$} & \multicolumn{2}{c}{$\tau = 0.1$} & \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
-loss (\% trained) & pair & rise & D/init & detour & gap & detour & gap & steps \\
+& & \multicolumn{2}{c}{straight line} & \multicolumn{2}{c}{$N=10$ path} & \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+loss (\% trained) & pair & rise & D/init & detour & gap & steps \\
 \midrule
 \csname @@input\endcsname level_paths/table_n10.tex
 \bottomrule
@@ -89,10 +87,11 @@ point $i$ has its target loss $c_i$ (interpolated between the endpoint losses) w
 budget: a stochastic string method (up to 6000 steps; each step does Adam on $(L_i - c_i)^2$ and pulls neighbouring
 points together), Levenberg--Marquardt steps, and curve shortening within the level set. If the points are still off
 the level, one 2500-step continuation of the string method without the pull follows (the pull drags points off the
-level where the path bends). Every step uses fresh training sequences. A path is \emph{valid at $\tau$} if the loss on 512 held-out
-sequences stays within $\tau$ of the target at 9 points per segment. A failing segment gets a midpoint and the
-optimization resumes (at most 4 rounds, so $N$ counts the starting points). For $\tau = 0.1$, paths that missed 0.02 are continued from their saved
-points; the optimization is unchanged and only the check uses 0.1. \emph{Detour:} path
+level where the path bends). Every step uses fresh training sequences. A path is \emph{valid} if the loss on 512 held-out
+sequences stays within $\tau = 0.1$ nats of the target at 9 points per segment. The optimization aims to stay within 0.02 nats,
+and the first check uses 0.02: a failing segment gets a midpoint and the optimization resumes (at most 4 rounds, so
+$N$ counts the starting points). A path that missed 0.02 is continued from its points before the midpoints, with the
+same optimization but checked against 0.1. When both runs give a valid path, we report the shorter one. \emph{Detour:} path
 length$/\|\theta_A - \theta_B\| - 1$.
 
 \textbf{Caveats.} A valid path's length is an upper bound on the shortest constant-loss path. The shortest $N$-point path would be a lower
@@ -106,7 +105,7 @@ null-space continuation (arXiv 2609.38081).
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths_robust.pdf}
-\caption{Robustness checks at $\tau = 0.02$: (a, b) 20-point constant-loss paths and (c, d) level-set walks: detour
+\caption{Robustness checks at $\tau = 0.1$: (a, b) 20-point constant-loss paths and (c, d) level-set walks: detour
 and gap. Open markers: the gap exceeds $\tau$; squares: AdamW vs Muon, order 1.}
 \label{fig:robust}
 \end{figure}
@@ -115,7 +114,7 @@ and gap. Open markers: the gap exceeds $\tau$; squares: AdamW vs Muon, order 1.}
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
 \caption{Robustness checks. Left: constant-loss paths with 20 points instead of 10 (detour in \%,
 gap in nats). Right: level-set walks, which step from $\theta_A$ towards $\theta_B$ along
-directions that keep the loss fixed (after Huang et al.). Parentheses: the gap exceeds 0.02 nats. --: not run (no
+directions that keep the loss fixed (after Huang et al.). Parentheses: the gap exceeds 0.1 nats. --: not run (no
 20-point paths at 100\%).}
 \begin{tabular}{@{}llrrrr@{}}
 \toprule

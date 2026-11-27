@@ -35,6 +35,7 @@ from optsplit.analysis.io import Run, load_runs
 from optsplit.loss import log_probs, mean_loss
 from optsplit.models import build_model, layer
 
+TAU = 0.1  # the reported tolerance of the paths (nats); the bands optimize and first check against 0.02
 PATH_SEED, HELDOUT_SEED = 101, 102  # fixed training sequences (the probe uses seed 0)
 STARTED, RESTART = time.time(), None  # RESTART: a worker's control file (see restart_if_asked)
 
@@ -1142,31 +1143,30 @@ def _finish(fig, axes, recs, h, labels, out):
 
 
 def cmd_plot(args):
-    """Fig. 1 (--out), per tolerance (rows): the length ratio in weights of the N=10 paths within it, and the best
-    held-out max |L - c| (open markers: no path within the tolerance) against the level. Next to it, from the same
-    records as the tables, with solid lines and squares for AdamW vs Muon order 1:
+    """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, and the best held-out
+    max |L - c| (open markers: no path within TAU) against the level. Next to it, from the same records as the
+    tables, with solid lines and squares for AdamW vs Muon order 1:
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
     <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights and max |L - c|;
-    open markers: max |L - c| > 0.02."""
+    open markers: max |L - c| > TAU."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 14, 'axes.labelsize': 7,
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
-    fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.4))
-    for row, tol in enumerate((0.02, 0.1)):
-        for pair, rs in recs.items():
-            st, x = STYLE[pair], np.array([r['probe'] for r in rs])
-            res = [at_tol(r, tol) for r in rs]
-            get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
-            gap = np.array([np.nan if g is None else g for _, g in res], dtype=float)
-            ok = gap <= tol
-            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), gap)):
-                _series(ax, x, y, ok, st, st['ls'], 'o')
-        axes[row, 0].set(yscale='log', ylabel=f'$\\tau$ = {tol:g}', title='length / distance $-$ 1 (weights)')
-        axes[row, 1].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
-        axes[row, 1].axhline(tol, color='k', lw=0.5, ls=':')
+    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
+    for pair, rs in recs.items():
+        st, x = STYLE[pair], np.array([r['probe'] for r in rs])
+        res = [at_tol(r, TAU) for r in rs]
+        get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
+        gap = np.array([np.nan if g is None else g for _, g in res], dtype=float)
+        ok = gap <= TAU
+        for ax, y in zip(axes, (get(lambda b: b['ratio'] - 1), gap)):
+            _series(ax, x, y, ok, st, st['ls'], 'o')
+    axes[0].set(yscale='log', ylabel=f'$\\tau$ = {TAU:g}', title='length / distance $-$ 1 (weights)')
+    axes[1].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
+    axes[1].axhline(TAU, color='k', lw=0.5, ls=':')
     names = [STYLE[k]['label'] for k in STYLE]
     marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
              plt.Line2D([], [], color='k', marker='o', ms=3, mfc='w', ls='')]
@@ -1190,17 +1190,17 @@ def cmd_plot(args):
         x = np.array([r['probe'] for r in rs])
         for row, key in enumerate(('n20', 'walk')):
             get = lambda f: np.array([np.nan if r[key] is None else f(r[key]) for r in rs], dtype=float)
-            ok = np.array([r[key] is not None and r[key]['ok'] for r in rs])
+            ok = np.array([r[key] is not None and r[key]['max_dev'] <= TAU for r in rs])
             for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['max_dev']))):
                 _series(ax, x, y, ok, STYLE[pair], '-', mk(pair))
     for row, name in enumerate(('$N = 20$ path', 'level-set walk')):
         axes[row, 0].set(yscale='log', ylabel=name, title='length / distance $-$ 1 (weights)')
         axes[row, 1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
-        axes[row, 1].axhline(0.02, color='k', lw=0.5, ls=':')
+        axes[row, 1].axhline(TAU, color='k', lw=0.5, ls=':')
         lo, hi = axes[row, 1].get_ylim()
-        axes[row, 1].set_ylim(min(lo, 1e-3), max(hi, 0.1))  # two labelled powers of 10, as in Fig. 1
+        axes[row, 1].set_ylim(min(lo, 1e-3), max(hi, 2 * TAU))  # tau inside; labelled powers of 10, as in Fig. 1
     _finish(fig, axes.ravel(), recs, h + marks,
-            names + ['within $\\tau$ = 0.02', 'missed $\\tau$'], out.with_name(out.stem + '_robust.pdf'))
+            names + [f'within $\\tau$ = {TAU:g}', 'missed $\\tau$'], out.with_name(out.stem + '_robust.pdf'))
 
 
 NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs Muon, order 1',
@@ -1209,9 +1209,10 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 def cmd_table(args):
     """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, distance / distance from init), then
-    at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%) (if within tau) and the best held-out max |L - c|,
-    and the string-method steps. Then a second table: the N=20 band's and the level-set walk's length / distance - 1 (%)
-    and max |L - c|; values in parentheses missed tau = 0.02."""
+    the shortest N=10 path within TAU: length / distance - 1 (%), the best held-out max |L - c| of the pair's runs, and
+    the string-method steps behind that path (no path within TAU: behind the run with the best max |L - c|). Then a
+    second table: the N=20 band's and the level-set walk's length / distance - 1 (%) and max |L - c|; values in
+    parentheses missed TAU."""
     recs = collect(args.out_dirs)
     f = lambda v, d=2, ok=True: '--' if v is None else (f'{v:.{d}f}' if ok else f'({v:.{d}f})')
     short = {'adamw-muon_d0': 'AdamW--Muon, 0', 'adamw-muon_d1': 'AdamW--Muon, 1', 'adamw_d0-d1': 'AdamW, 0--1',
@@ -1223,17 +1224,17 @@ def cmd_table(args):
         first = True
         for pair in short:
             for r in (r for r in recs.get(pair, []) if r['level'] == level):
-                p, cells = r['prof'], []
-                for tol in (0.02, 0.1):
-                    b, gap = at_tol(r, tol)
-                    cells += [f(b and 100 * (b['ratio'] - 1)), f(gap, 3)]
+                p, (b, gap) = r['prof'], at_tol(r, TAU)
+                run = b or min(filter(None, (r['n10'], r['n10_t01'])), key=lambda c: c['max_dev'], default=None)
                 head = f'{x:.2f} ({round(s / 100)}\\%)' if first and s else ''
                 first = False
                 rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['rel_distance']['all']),
-                                        *cells, '--' if r['n10'] is None else str(effort(r['n10'])[0])]) + r' \\')
+                                        f(b and 100 * (b['ratio'] - 1)), f(gap, 3),
+                                        '--' if run is None else str(effort(run)[0])]) + r' \\')
                 cells = []
                 for b in (r['n20'], r['walk']):
-                    cells += [f(b and 100 * (b['ratio'] - 1), 2, b is None or b['ok']), f(b and b['max_dev'], 3)]
+                    cells += [f(b and 100 * (b['ratio'] - 1), 2, b is None or b['max_dev'] <= TAU),
+                              f(b and b['max_dev'], 3)]
                 extra.append(' & '.join([head, short[pair], *cells]) + r' \\')
         rows.append(r'\midrule')
         extra.append(r'\midrule')
