@@ -408,12 +408,12 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         """At most k steps of curve shortening within the level set, to remove the wander that the noise of the string
         phase leaves in the path: on a fresh group of sequences of obj_shorten (a larger batch than the string
         phase's), each point moves by beta times the discrete Laplacian of the path minus its component along its
-        loss gradient, plus a Newton step back to its target loss. beta adapts like a trust region: if the max
-        |L - c| after a step exceeds lim = max(tol, 1.5 x its value at the start), the step is undone and beta
-        halved; after a step that keeps it below lim / 2, beta grows by 20% (up to shorten_beta; it starts at 1/16 of
-        that). Stops once the length has fallen by less than 1% of its excess over the last 100 steps. Skipped for a
+        loss gradient, plus a fraction nu of a Newton step back to its target loss. beta and nu adapt like a trust
+        region: if the max |L - c| after a step exceeds lim = max(tol, 1.5 x its value at the start), the step is
+        undone and both are halved; after a step that keeps it below lim / 2, both grow by 20% (up to shorten_beta and
+        1; they start at 1/16 of shorten_beta and 1/4). Stops once the length has fallen by less than 1% of its excess over the last 100 steps. Skipped for a
         path off the level (max |L - c| on the check set above 2 tol), where the Newton steps fail."""
-        bs, ratios, prev, lim, undone = shorten_beta / 16, [float(lengths(X, a, b).sum() / D)], None, None, 0
+        bs, nu, ratios, prev, lim, undone = shorten_beta / 16, 0.25, [float(lengths(X, a, b).sum() / D)], None, None, 0
         hist.append(dict(phase='shorten', n=len(X), t=0, beta=bs, check_max_r=check_dev(X), ratio=ratios[0],
                          time=time.time() - t0))
         if hist[-1]['check_max_r'] > 2 * tol:
@@ -425,16 +425,16 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             dev = float(np.abs(L - c).max())
             lim = lim or max(tol, 1.5 * dev)
             if prev is not None and dev > lim:  # the last step left the level set: undo it, smaller steps
-                X, bs, undone = prev, bs / 2, undone + 1
+                X, bs, nu, undone = prev, bs / 2, nu / 2, undone + 1
                 L, G = evaluate(obj_shorten, X)
             elif dev < lim / 2:
-                bs = min(bs * 1.2, shorten_beta)
+                bs, nu = min(bs * 1.2, shorten_beta), min(nu * 1.2, 1.0)
             prev = X
             P = torch.cat([a[None], X, b[None]])
             lap = P[:-2] + P[2:] - 2 * X
             gg = (G * G).sum(1, keepdim=True).clamp_min(1e-24)
             lap -= (lap * G).sum(1, keepdim=True) / gg * G
-            X = X + bs * lap - torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G / gg
+            X = X + bs * lap - nu * torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G / gg
             del P, lap, G, gg
             if t % 25 == 0:
                 ratios.append(float(lengths(prev, a, b).sum() / D))
