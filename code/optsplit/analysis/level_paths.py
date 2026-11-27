@@ -1168,7 +1168,8 @@ def cmd_table(args):
     """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, prediction-space ratio, distance /
     distance from init), then at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%) and prediction-space
     ratio (if within tau) and the best held-out max |L - c|, and the string-method steps. Then a
-    second table: the N=20 band's and the level-set walk's length / distance - 1 (%) and max |L - c| at tau = 0.02."""
+    second table: the N=20 band's length / distance - 1 (%), prediction-space ratio and max |L - c|, and the level-set
+    walk's length / distance - 1 (%) and max |L - c|; values in parentheses missed tau = 0.02."""
     recs = collect(args.out_dirs)
     f = lambda v, d=2, ok=True: '--' if v is None else (f'{v:.{d}f}' if ok else f'({v:.{d}f})')
     short = {'adamw-muon_d0': 'AdamW--Muon, 0', 'adamw-muon_d1': 'AdamW--Muon, 1', 'adamw_d0-d1': 'AdamW, 0--1',
@@ -1188,9 +1189,10 @@ def cmd_table(args):
                 first = False
                 rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['pred_ratio']), f(p['rel_distance']['all']),
                                         *cells, '--' if r['n10'] is None else str(effort(r['n10'])[0])]) + r' \\')
-                cells = []
-                for b in (r['n20'], r['walk']):
+                n20, cells = r['n20'], []
+                for b in (n20, r['walk']):
                     cells += [f(b and 100 * (b['ratio'] - 1), 2, b is None or b['ok']), f(b and b['max_dev'], 3)]
+                cells.insert(1, f(n20 and n20['pred_ratio'], 2, n20 is None or n20['ok']))
                 extra.append(' & '.join([head, short[pair], *cells]) + r' \\')
         rows.append(r'\midrule')
         extra.append(r'\midrule')
