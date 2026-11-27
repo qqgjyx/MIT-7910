@@ -28,7 +28,7 @@
 \maketitle
 \vspace{-0.8em}
 
-\paragraph{Does a negative power $p$ help under cross-entropy?} Slightly when runs are compared at equal steps; not at equal GPU time. At Muon's learning rate (0.01), $p=-0.3$ gives the lowest final validation loss, 1.3002 against 1.3049 for standard Muon (\cref{tab:negp,fig:loss}). It wins on all three data orders tried (mean 1.3027 against 1.3086), though its smallest gain, 0.0015, is within noise: Muon's final loss has a standard deviation of 0.0033 over five data orders. At half the rate, the best power is $p=-0.1$. An exact SVD makes each step 9 times slower than Muon's, and even its cheap approximation LC12 loses to Muon at equal GPU time (\cref{tab:lc,fig:lc}).
+\paragraph{Does a negative power $p$ help under cross-entropy?} Slightly when runs are compared at equal steps; not at equal GPU time. At Muon's learning rate (0.01), $p=-0.3$ gives the lowest final validation loss, 1.3002 against 1.3049 for standard Muon (\cref{tab:negp}). It wins on all three data orders tried (mean 1.3027 against 1.3086; \cref{fig:loss}), though its smallest gain, 0.0015, is within noise: Muon's final loss has a standard deviation of 0.0033 over five data orders. At half the rate, the best power is $p=-0.1$. An exact SVD makes each step 9 times slower than Muon's, and even its cheap approximation LC12 loses to Muon at equal GPU time (\cref{tab:lc,fig:lc}).
 
 \paragraph{What $p$ is.} We take the SVD $U\,\mathrm{diag}(s)\,V^\top$ of Muon's momentum matrix and update the weights by $U\,\mathrm{diag}(s^p)\,V^\top$, rescaled to the Frobenius norm of the $p=0$ update. $p=0$ is Muon with exact orthogonalization (standard Muon approximates it by a Newton--Schulz iteration); $p<0$ gives the largest steps to the directions where the momentum is smallest. For $p<0$, $s$ is first divided by its largest value, and ratios below $10^{-6}$ are set to $10^{-6}$.
 
@@ -65,7 +65,7 @@ AdamW (rate 0.002) & 1438 & 32.9 & 7.95 & 10000 & 17.9 & -- & 1.3391 & -- \\
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/dose_loss_ce.pdf}
-\caption{Training (top) and validation (bottom) loss against step, rate 0.01, one colour per $p$; data order 0 only, the one order with every $p$. (a, c) Whole run, log axis in (loss $-$ 1), grey line at training loss 1.81; (b, d) from step 5000, linear, capped at AdamW's loss at step 5000.}
+\caption{Training (top) and validation (bottom) loss against step, rate 0.01, one colour per $p$; each curve the mean over the data orders run ($n$ in the legend). (a, c) Whole run, log axis in (loss $-$ 1), grey line at training loss 1.81; (b, d) from step 5000, linear, capped at AdamW's loss at step 5000.}
 \label{fig:loss}
 \end{figure}
 
@@ -99,7 +99,7 @@ Muon (Newton--Schulz) & 15 & 117 & -- & 1.3049 & 1.3070 & 1.3138 & 1.3086 & \tex
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/lc_loss_ce.pdf}
-\caption{Mean over data orders 0--2 of the training loss against step (top), validation loss against step (middle) and against GPU minutes (bottom), over the whole run (left, log axis in loss $-$ 1) and the end of training (right); grey line: 1.3391.}
+\caption{Mean over each method's finished data orders ($n$ in the legend) of the training loss against step (top), validation loss against step (middle) and against GPU minutes (bottom), over the whole run (left, log axis in loss $-$ 1) and the end of training (right); grey line: 1.3391.}
 \label{fig:lc}
 \end{figure}
 

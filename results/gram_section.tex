@@ -4,7 +4,7 @@
 \begin{table}[H]
 \centering
 \small
-\caption{Gram LC against the other methods, one row per data order; exact: exact SVD at $p=-0.3$. running, queued: not finished, not started; pending: no timing yet; --: not run; mean: over the orders Gram LC has finished (d0, d1).}
+\caption{Gram LC against the other methods, one row per data order; exact: exact SVD at $p=-0.3$. running, queued: not finished, not started; pending: no timing yet; --: not run; mean: over the $n$ data orders each method has finished.}
 \label{tab:gram}
 \setlength{\tabcolsep}{3.5pt}
 \begin{tabular}{l ccccc ccccc}
@@ -19,7 +19,8 @@ d2 & queued & 1.3138 & 1.3126 & 1.3023 & 1.3446 & queued & 15.1 & 15.9 & 132.6 &
 d3 & queued & 1.3084 & -- & -- & 1.3496 & queued & 14.9 & -- & -- & never \\
 d4 & queued & 1.3090 & -- & -- & 1.3403 & queued & 15.1 & -- & -- & never \\
 \midrule
-mean & 1.3054 & 1.3059 & 1.3100 & 1.3029 & 1.3427 & pending & 14.7 & 15.8 & 132.8 & -- \\
+mean & 1.3054 & 1.3086 & 1.3109 & 1.3027 & 1.3440 & pending & 14.9 & 15.8 & 132.8 & -- \\
+$n$ & 2 & 5 & 3 & 3 & 5 & 2 & 5 & 3 & 3 & 5 \\
 \bottomrule
 \end{tabular}
 \end{table}

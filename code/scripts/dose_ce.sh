@@ -3,7 +3,7 @@
 # on CPUs (the weight metrics at the checkpoints around training loss 1.81, and the distances, need no GPU):
 #   sbatch -p mit_normal --gres=none -c 32 -t 08:00:00 slurm/cmd.sbatch bash scripts/dose_ce.sh
 # Everything goes to $OPTSPLIT_ROOT/analysis/ts10m_ce_svp/ (figures in figures/).
-# Fig. 2 and the Gram LC section of the document: scripts/gram_section.sh, on a laptop.
+# Figs. 1 and 2 (means over data orders) and the Gram LC section of the document: scripts/gram_section.sh, on a laptop.
 source "${OPTSPLIT_CODE:-$SLURM_SUBMIT_DIR}/slurm/env.sh"
 cd "$OPTSPLIT_CODE"
 OUT=$OPTSPLIT_ROOT/analysis/ts10m_ce_svp
