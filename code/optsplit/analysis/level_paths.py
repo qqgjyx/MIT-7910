@@ -1128,8 +1128,8 @@ def cmd_plot(args):
         ax.set_xlim(max(xs) + 0.2, min(xs) - 0.02)
         ax.set_xlabel('training loss at the level')
         for s, v in at.items():  # the levels, as a fraction of AdamW training (10k steps)
-            ax.text(np.mean(v), 1.01, f'{round(s / 100)}%', transform=ax.get_xaxis_transform(), ha='center',
-                    va='bottom', fontsize=5)
+            ax.text(np.mean(v), 1.01, f'{round(s / 100)}%', transform=ax.get_xaxis_transform(),
+                    ha={7500: 'right', 10000: 'left'}.get(s, 'center'), va='bottom', fontsize=5)
     from optsplit.analysis.plots import panel_labels
     panel_labels(axes.ravel())
     h = [plt.Line2D([], [], color=STYLE[k]['color'], ls=STYLE[k]['ls'], lw=0.9) for k in STYLE]
