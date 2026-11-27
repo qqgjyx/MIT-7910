@@ -29,15 +29,15 @@
 same data order) are farther apart than two runs of one optimizer that differ only in data order. We call the latter
 pair the \emph{floor}: it shows how far apart runs land by chance. Up to 75\% of training, AdamW and Muon are still
 joined by a path whose loss stays within 0.1 nats of the level. At 100\%, only the floor's paths stay within 0.1 nats
-(AdamW--Muon: 0.11--0.13).
+(AdamW--Muon: 0.12 nats). AdamW--Muon values are means over the pair's two data orders, as in the figures.
 \begin{itemize}\setlength{\itemsep}{0pt}
 \item \textbf{Farther apart.} Their distance, divided by the mean distance each model travelled from the
 initialization, is 1.13--1.39 against 0.67--1.24 for the floor. Along the straight line between them the loss rises
-0.4--3.9 nats above the level, against 0--1.6 for the floor (\cref{fig:line}).
-\item \textbf{Path lengths tell AdamW--Muon from the floor only at 4--7\%.} There, the AdamW--Muon path is longer than the floor's at
-every level: 0.2--1.2\% longer than the straight line against at most 0.02\% with 10 points, and 1.4--5.8\% against at
-most 0.2\% with 20 (\cref{fig:robust}). At 3\% and from 14\% to 50\%, this holds with 10 points but not with 20. From 33\% on, the floor's 20-point paths are as long as AdamW--Muon's. These later lengths mostly
-measure how far the optimizer wandered inside the level set, not the landscape.
+0.4--3.8 nats above the level, against 0--1.6 for the floor (\cref{fig:line}).
+\item \textbf{Longer constant-loss paths.} The AdamW--Muon path is longer than the paths of both floors (AdamW and
+Muon) at 3--50\% with 10 points (\cref{fig:paths}) and at 3--14\% and 50--75\% with 20 (\cref{fig:robust}). With 20
+points, one of the two orders alone is not longer at 3\%, 14\%, 50\% and 75\%; each order on its own is longer with
+both 10 and 20 points only at 4--7\%.
 \end{itemize}
 
 \begin{figure}[H]
@@ -50,6 +50,7 @@ optimizer. Valid paths stay within $\tau = 0.1$ nats of the level. (a) Path leng
 straight-line distance, minus 1 (log scale), for the shortest valid path. (b) Gap: the largest held-out deviation of
 the loss from its target along the same path; open markers: no valid path, so the smallest gap of the pair's runs;
 dotted: $\tau$. (c) Length of the path in (a), in the units of $\|\theta_A - \theta_B\|_2$.}
+\label{fig:paths}
 \end{figure}
 
 \begin{figure}[H]
@@ -101,8 +102,8 @@ Lengths in weights depend on the start: at 14\% (AdamW--Muon, order 0), starting
 middle pushed 10\% of the distance in a random direction (two seeds) gave detours of 1.2\% and 1.3\% instead of
 0.7\%.
 
-The level-set walks stay within 0.012 nats of the level, well within 0.1. Up to 14\%, all of them reach
-$\theta_B$, and AdamW--Muon's detours exceed the floor's at every level (0.14--13\% against 0--1.5\%). At 33\% and
+The level-set walks stay within 0.011 nats of the level, well within 0.1. Up to 14\%, all of them reach
+$\theta_B$, and AdamW--Muon's detours exceed both floors' at every level (0.16--13\% against 0--1.4\%). At 33\% and
 50\%, only the AdamW floor reaches $\theta_B$ (detours 10\% and 38\%); later, no walk does. The others stop with
 58--95\% of the distance left, once even steps of 0.05\% of the distance can no longer be corrected back to within 0.01 nats.
 
