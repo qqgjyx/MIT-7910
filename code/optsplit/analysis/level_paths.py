@@ -357,7 +357,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         o.rotate()
         return o.loss(a), o.loss(b)
 
-    def string(X, k, scale=1.0, hold=0.7, springs=True):
+    def string(X, k, scale=1.0, hold=0.7, springs=True, ckpt=None):
         """At most k steps of a stochastic string method, with Adam step size scale * lr: on a fresh group of
         sequences, each point takes an Adam step on (L_i - c_i)^2 / 2 (descent to the level set, like training; from
         below it climbs), then moves by beta times the discrete Laplacian of the path minus its component along the
@@ -366,12 +366,21 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         earlier, once the max |L - c| at the points on the check set (the better of two checks 50 steps apart, against
         occasional spikes) is below 2 tol (then over as many steps as taken so far) or has improved by less than 2%
         over 200 steps (a noise plateau above the level, as in training at constant lr: then over all the remaining
-        steps, at least as many as taken so far). Adam's betas are training's (0.9, 0.95)."""
+        steps, at least as many as taken so far). Adam's betas are training's (0.9, 0.95). With ckpt, the points and
+        the schedule are saved every 250 steps, and a later call with the same arguments continues from there (with
+        fresh Adam moments), e.g. after a preemption."""
         mom, sq = torch.zeros_like(X), torch.zeros_like(X)
         warm, stop, decay, chk = 0.1 * k, int(hold * k), k - int(hold * k), []
-        t = 0
+        t = ta = 0  # ta: Adam steps since the (re)start
+        key = dict(k=k, scale=scale, hold=hold, springs=springs, n=len(X))
+        if ckpt is not None and Path(ckpt).exists():
+            sv = torch.load(ckpt, map_location=X.device)
+            if sv['key'] == key:
+                X, t, stop, decay, chk = sv['X'], sv['t'], sv['stop'], sv['decay'], sv['chk']
+                hist[:] = sv['hist']
+                log(f'string: continuing at t={t} from {ckpt}')
         while t < stop + decay:
-            t += 1
+            t, ta = t + 1, ta + 1
             c = targets(*ends(obj_string), len(X))
             L, G = evaluate(obj_string, X)
             g = torch.tensor(L - c, dtype=X.dtype, device=X.device)[:, None] * G
@@ -382,7 +391,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             lap = P[:-2] + P[2:] - 2 * X
             u = G / G.norm(dim=1, keepdim=True).clamp_min(1e-12)
             lap -= (lap * u).sum(1, keepdim=True) * u
-            X = X - f * scale * lr * (mom / (1 - 0.9 ** t)) / ((sq / (1 - 0.95 ** t)).sqrt() + 1e-8) + f * springs * beta * lap
+            X = X - f * scale * lr * (mom / (1 - 0.9 ** ta)) / ((sq / (1 - 0.95 ** ta)).sqrt() + 1e-8) + f * springs * beta * lap
             del P, lap, u, G
             if t <= stop and t % 50 == 0 and t > warm:  # early stop: at the level, or flat over the last 200 steps
                 chk.append(check_dev(X))
@@ -393,6 +402,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 if flat or d1 <= 2 * tol:
                     stop, decay = t, t if d1 <= 2 * tol else max(t, k - t)
                     log(f"string: {'flat' if flat else 'at the level'}, decaying over {decay} steps")
+            if ckpt is not None and t % 250 == 0:
+                torch.save(dict(key=key, X=X, t=t, stop=stop, decay=decay, chk=chk, hist=hist), f'{ckpt}.tmp')
+                os.replace(f'{ckpt}.tmp', ckpt)
             if t % 50 == 0 or t == stop + decay:
                 hist.append(dict(phase='string', n=len(X), t=t, max_r=float(np.abs(L - c).max()),
                                  ratio=float(lengths(X, a, b).sum() / D), time=time.time() - t0))
@@ -498,11 +510,13 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         X, stages = st['X'], list(st['stages'])
         hist.extend(st['hist'])
         log(f"resumed after the string and LM phases from {stash}, max|L-c| {stages[-1]['max_r']:.4f}")
+    sck = None if stash is None else Path(stash).with_suffix('.string.pt')  # the string phase's own checkpoint
+
     def string_lm(X, cont):
         if cont:  # from a path off the level, without the springs, which cut corners off it
-            X = string(X, resume_steps, scale=0.25, hold=0.1, springs=False)
+            X = string(X, resume_steps, scale=0.25, hold=0.1, springs=False, ckpt=sck)
         elif steps:
-            X = string(X, steps)
+            X = string(X, steps, ckpt=sck)
         if cont or steps:
             stages.append(dict(w='string', ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
         for w in ws:
@@ -524,6 +538,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             X, stages = best[0], list(best[1])
         elif stash is not None:
             torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
+    if sck is not None:
+        sck.unlink(missing_ok=True)
     if lm_first and st is not None:
         for w in ws:
             X = run_stage(X, w, iters, ramp=iters // 2)
