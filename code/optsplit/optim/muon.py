@@ -3,7 +3,8 @@
 Only the single-device optimizer with auxiliary AdamW is kept. One change: `muon_update` no longer
 overwrites `grad` in place (upstream does `grad.lerp_`), so a shadow optimizer or ghost stepping after Muon on
 the same gradients sees them unchanged. Added, as ablations (DESIGN.md): `orthogonalize=False`, `sv_power=p` and
-`two_track_steps=K` and `lc_steps=K` (sv_power by matrix products instead of the SVD).
+`two_track_steps=K` and `lc_steps=K` (sv_power by matrix products instead of the SVD); and `fast_update=True`
+(optim.muon.fast_update: the same update with the matrices of one shape in one batch, see fast_muon_step).
 """
 
 import torch
@@ -144,6 +145,13 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, orthogonal
     update = grad.lerp(momentum, beta) if nesterov else momentum
     if update.ndim == 4:  # conv filters
         update = update.view(len(update), -1)
+    return muon_direction(update, ns_steps, orthogonalize, sv_power, two_track_steps, lc_steps)
+
+
+def muon_direction(update, ns_steps=5, orthogonalize=True, sv_power=None, two_track_steps=None, lc_steps=None,
+                   batched=False):
+    """The end of muon_update: the update from the matrix it orthogonalizes, or from a stack of such matrices
+    (batched=True: each one rescaled by its own norm)."""
     if sv_power is None and orthogonalize:
         update = zeropower_via_newtonschulz5(update, steps=ns_steps)
     else:  # ablations, rescaled to the Frobenius norm of an orthogonal update, sqrt(min(n_out, n_in))
@@ -153,9 +161,30 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, orthogonal
             update = sv_power_lc(update, sv_power, lc_steps)
         elif sv_power is not None:  # the same by an exact SVD
             update = sv_power_exact(update.float(), sv_power)
-        update = update * (min(update.shape[-2:]) ** 0.5 / (update.norm() + 1e-7))
+        norm = update.norm(dim=(-2, -1), keepdim=True) if batched else update.norm()
+        update = update * (min(update.shape[-2:]) ** 0.5 / (norm + 1e-7))
     update *= max(1, update.size(-2) / update.size(-1)) ** 0.5
     return update
+
+
+def fast_muon_step(group, momenta):
+    """muon_update and the parameter update of SingleDeviceMuonWithAuxAdam.step for all matrices of a Muon group at once
+    (optim.muon.fast_update): momentum and parameter updates as foreach ops, and the matrices of each shape stacked into
+    one batch, so the iteration runs once per shape (3 times for the GPT instead of 36). The same arithmetic, launched as
+    about 20 times fewer GPU kernels; batched products and norms round differently, so the update equals the per-matrix
+    one up to bfloat16 rounding."""
+    params, lr = group["params"], group["lr"]
+    grads = [p.grad for p in params]
+    torch._foreach_lerp_(momenta, grads, 1 - group["momentum"])
+    updates = torch._foreach_lerp(grads, momenta, group["momentum"])  # Nesterov
+    torch._foreach_mul_(params, 1 - lr * group["weight_decay"])
+    for shape in dict.fromkeys(p.shape for p in params):
+        idx = [i for i, p in enumerate(params) if p.shape == shape]
+        update = muon_direction(torch.stack([updates[i] for i in idx]).flatten(2), orthogonalize=group["orthogonalize"],
+                                sv_power=group["sv_power"], two_track_steps=group["two_track_steps"],
+                                lc_steps=group["lc_steps"], batched=True)
+        update = update.reshape(len(idx), *shape).to(params[idx[0]].dtype)
+        torch._foreach_add_([params[i] for i in idx], list(update), alpha=-lr)
 
 
 def adam_update(grad, buf1, buf2, step, betas, eps):
@@ -180,10 +209,14 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                 group["sv_power"] = group.get("sv_power", None)
                 group["two_track_steps"] = group.get("two_track_steps", None)
                 group["lc_steps"] = group.get("lc_steps", None)
+                group["fast_update"] = group.get("fast_update", False)
                 assert not group["two_track_steps"] or group["sv_power"] in TWO_TRACK, "two-track: no coefficients"
                 assert not group["lc_steps"] or (group["sv_power"], group["lc_steps"]) in LC, "LC: no coefficients"
+                assert not group["fast_update"] or group["sv_power"] is None or group["two_track_steps"] or \
+                    group["lc_steps"], "fast_update: not with the exact SVD"
                 assert set(group.keys()) == set(["params", "lr", "momentum", "weight_decay", "use_muon",
-                                                 "orthogonalize", "sv_power", "two_track_steps", "lc_steps"])
+                                                 "orthogonalize", "sv_power", "two_track_steps", "lc_steps",
+                                                 "fast_update"])
             else:
                 group["lr"] = group.get("lr", 3e-4)
                 group["betas"] = group.get("betas", (0.9, 0.95))
@@ -207,11 +240,15 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum_buffer"] = torch.zeros_like(p)
+                    if group["fast_update"]:
+                        continue  # all matrices at once, below
                     update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"],
                                          orthogonalize=group["orthogonalize"], sv_power=group["sv_power"],
                                          two_track_steps=group["two_track_steps"], lc_steps=group["lc_steps"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
+                if group["fast_update"]:
+                    fast_muon_step(group, [self.state[p]["momentum_buffer"] for p in group["params"]])
             else:
                 for p in group["params"]:
                     if p.grad is None:
