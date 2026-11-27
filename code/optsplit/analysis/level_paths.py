@@ -1129,29 +1129,30 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 
 def cmd_table(args):
-    """LaTeX rows: per level (the given ones, by index in the levels sorted by decreasing loss, or all) and pair. The
-    first column is the level's training loss (mean over the pairs' endpoints on the probe) and AdamW step."""
+    """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, prediction-space ratio, distance /
+    distance from init), then at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%), prediction-space
+    ratio and best held-out max |L - c| (in parentheses: the path missed tau), and the string-method steps."""
     recs = collect(args.out_dirs)
-    f = lambda v, d=3: '--' if v is None else f'{v:.{d}f}'
-    levels = sorted({r['level'] for rs in recs.values() for r in rs}, reverse=True)
-    keep = [levels[i] for i in args.levels] if args.levels else levels
-    for level in keep:
+    f = lambda v, d=2, ok=True: '--' if v is None else (f'{v:.{d}f}' if ok else f'({v:.{d}f})')
+    short = {'adamw-muon_d0': 'AdamW--Muon, 0', 'adamw-muon_d1': 'AdamW--Muon, 1', 'adamw_d0-d1': 'AdamW, 0--1',
+             'muon_d0-d1': 'Muon, 0--1'}
+    for level in sorted({r['level'] for rs in recs.values() for r in rs}, reverse=True):
         x = np.mean([r['probe'] for rs in recs.values() for r in rs if r['level'] == level])
         s = next((r['step'] for rs in recs.values() for r in rs if r['level'] == level and r['step']), None)
-        for pair in NAMES:
-            for r in recs.get(pair, []):
-                if r['level'] != level:
-                    continue
-                n10, n20, p = r['n10'], r['n20'], r['prof']
-                print(' & '.join([
-                    f'{x:.2f}', '--' if s is None else f'{s} ({round(s / 100)}\\%)', NAMES[pair],
-                    f(abs(p['c_a'] - p['c_b'])), f(p['rise'], 2), f(abs(p['dip']), 2),
-                    f(p['rel_distance']['all'], 2), f(n10 and n10['fixed']['ratio'], 4),
-                    f(n20 and n20['fixed']['ratio'], 4),
-                    f(n10 and n10['valid']['ratio'], 4) + (f" ({n10['valid']['n']})" if n10 else ''),
-                    f(n10 and n10['valid']['max_dev']), f(p['pred_ratio'], 2),
-                    f(n10 and n10['valid']['pred_ratio'], 2),
-                    f(n10 and effort(n10)[1]), '--' if n10 is None else str(effort(n10)[0])]) + r' \\')
+        first = True
+        for pair in short:
+            for r in (r for r in recs.get(pair, []) if r['level'] == level):
+                p, cells = r['prof'], []
+                for tol in (0.02, 0.1):
+                    b = at_tol(r, tol)
+                    ok = b is not None and b['max_dev'] <= tol
+                    cells += [f(b and 100 * (b['ratio'] - 1), 2, ok), f(b and b['pred_ratio'], 2, ok),
+                              f(b and effort(b)[1], 3)]
+                head = f'{x:.2f} ({round(s / 100)}\\%)' if first and s else ''
+                first = False
+                print(' & '.join([head, short[pair], f(p['rise']), f(p['pred_ratio']), f(p['rel_distance']['all']),
+                                  *cells, '--' if r['n10'] is None else str(effort(r['n10'])[0])]) + r' \\')
+        print(r'\midrule')
 
 
 def cmd_profile(args):
