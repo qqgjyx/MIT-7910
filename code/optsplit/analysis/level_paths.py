@@ -1102,11 +1102,12 @@ def effort(res):
 
 
 def at_tol(r, tol):
-    """(the shortest N=10 path of record r within tol, or None; the smallest held-out max |L - c| of its paths): at
-    0.02 the band; at 0.1 also its continuation in band_t0.1/."""
+    """(the shortest N=10 path of record r within tol, or None; the path whose held-out max |L - c| is reported: that
+    one, else the pair's path with the smallest max |L - c|, or None): at 0.02 the band; at 0.1 also its continuation
+    in band_t0.1/."""
     cands = [b for b in ((r['n10'], r.get('n10_t01')) if tol > 0.05 else (r['n10'],)) if b]
-    return (min((b for b in cands if b['max_dev'] <= tol), key=lambda b: b['ratio'], default=None),
-            min((b['max_dev'] for b in cands), default=None))
+    b = min((b for b in cands if b['max_dev'] <= tol), key=lambda b: b['ratio'], default=None)
+    return b, b or min(cands, key=lambda b: b['max_dev'], default=None)
 
 
 def _series(ax, x, y, ok, st, ls, marker):
@@ -1143,8 +1144,8 @@ def _finish(fig, axes, recs, h, labels, out):
 
 
 def cmd_plot(args):
-    """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, and the best held-out
-    max |L - c| (open markers: no path within TAU) against the level. Next to it, from the same records as the
+    """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, and its held-out
+    max |L - c| (open markers: no path within TAU; then the smallest of the pair) against the level. Next to it, from the same records as the
     tables, with solid lines and squares for AdamW vs Muon order 1:
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
     <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights and max |L - c|;
@@ -1160,12 +1161,12 @@ def cmd_plot(args):
         st, x = STYLE[pair], np.array([r['probe'] for r in rs])
         res = [at_tol(r, TAU) for r in rs]
         get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
-        gap = np.array([np.nan if g is None else g for _, g in res], dtype=float)
+        gap = np.array([np.nan if g is None else g['max_dev'] for _, g in res], dtype=float)
         ok = gap <= TAU
         for ax, y in zip(axes, (get(lambda b: b['ratio'] - 1), gap)):
             _series(ax, x, y, ok, st, st['ls'], 'o')
     axes[0].set(yscale='log', ylabel=f'$\\tau$ = {TAU:g}', title='length / distance $-$ 1 (weights)')
-    axes[1].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
+    axes[1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
     axes[1].axhline(TAU, color='k', lw=0.5, ls=':')
     names = [STYLE[k]['label'] for k in STYLE]
     marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
@@ -1209,8 +1210,8 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 def cmd_table(args):
     """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, distance / distance from init), then
-    the shortest N=10 path within TAU: length / distance - 1 (%), the best held-out max |L - c| of the pair's runs, and
-    the string-method steps behind that path (no path within TAU: behind the run with the best max |L - c|). Then a
+    the shortest N=10 path within TAU: length / distance - 1 (%), held-out max |L - c| and the string-method steps
+    behind it (no path within TAU: the max |L - c| and steps of the run with the smallest max |L - c|). Then a
     second table: the N=20 band's and the level-set walk's length / distance - 1 (%) and max |L - c|; values in
     parentheses missed TAU."""
     recs = collect(args.out_dirs)
@@ -1224,12 +1225,11 @@ def cmd_table(args):
         first = True
         for pair in short:
             for r in (r for r in recs.get(pair, []) if r['level'] == level):
-                p, (b, gap) = r['prof'], at_tol(r, TAU)
-                run = b or min(filter(None, (r['n10'], r['n10_t01'])), key=lambda c: c['max_dev'], default=None)
+                p, (b, run) = r['prof'], at_tol(r, TAU)
                 head = f'{x:.2f} ({round(s / 100)}\\%)' if first and s else ''
                 first = False
                 rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['rel_distance']['all']),
-                                        f(b and 100 * (b['ratio'] - 1)), f(gap, 3),
+                                        f(b and 100 * (b['ratio'] - 1)), f(run and run['max_dev'], 3),
                                         '--' if run is None else str(effort(run)[0])]) + r' \\')
                 cells = []
                 for b in (r['n20'], r['walk']):

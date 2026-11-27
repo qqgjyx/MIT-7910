@@ -47,7 +47,8 @@ measure how far the optimizer wandered inside the level set, not the landscape.
 fraction of AdamW's training. Blue: AdamW vs Muon, same data order. Grey: the floor, two data orders of one
 optimizer. Valid paths stay within $\tau = 0.1$ nats of the level. (a) Path length in weights over the
 straight-line distance, minus 1 (log scale), for the shortest valid path. (b) Gap: the largest held-out deviation of
-the loss from its target along the path, for the pair's best 10-point run; dotted: $\tau$; open markers: no valid path.}
+the loss from its target along the same path; open markers: no valid path, so the smallest gap of the pair's runs;
+dotted: $\tau$.}
 \end{figure}
 
 \begin{figure}[H]
@@ -62,9 +63,9 @@ the loss from its target along the path, for the pair's best 10-point run; dotte
 \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
 \caption{Per level and pair (``AdamW--Muon, 0'': both on data order 0; ``AdamW, 0--1'': AdamW on orders 0 and 1):
 the straight line (rise: largest loss excess in nats; D/init: distance over the mean distance travelled from
-initialization), and the shortest 10-point constant-loss path valid at $\tau = 0.1$ (detour in \%; --: no valid path; gap: the
-smallest over the pair's runs, in nats). Steps: string-method steps behind that path, continuations included
-(without a valid path: behind the run with the smallest gap; at most $6000 + 2500 + 4 \times 300$).}
+initialization), and the shortest 10-point constant-loss path valid at $\tau = 0.1$ (detour in \%; gap in nats; steps: string-method
+steps behind it, continuations included, at most $6000 + 2500 + 4 \times 300$). Without a valid path (--), gap and
+steps are those of the pair's run with the smallest gap.}
 \begin{tabular}{@{}llrrrrr@{}}
 \toprule
 & & \multicolumn{2}{c}{straight line} & \multicolumn{2}{c}{$N=10$ path} & \\
