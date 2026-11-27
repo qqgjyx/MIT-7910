@@ -18,6 +18,9 @@
 # optim.muon.fast_update (ts10m_ce_speed; a 200-step smoke run with STEPS=200, ts10m_ce_speed_smoke):
 #   SUITE=ts10m_ce_speed LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon muon_fast lc5 \
 #       lc5_fast adamw
+# Every method of the CE document with the fast path, on one GPU (ts10m_ce_timing_fast):
+#   SUITE=ts10m_ce_timing_fast LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon_fast lc5_fast \
+#       lc6_fast lc8_fast lc12_fast gram_fast adamw
 suite=${SUITE:-ts10m_mse_tt_pilot}
 common="suite=$suite train.loss=${LOSS:-mse} optimizer=muon optim.muon.lr=${LR:-0.005} train.max_steps=${STEPS:-400} schedule.decay=constant
     measure.hessian=false measure.delta_loss=false log.preds=false log.ckpt_steps.every=0 log.ckpt_steps.geometric=0"
@@ -41,6 +44,9 @@ declare -A opts=([muon]="" [tt5]="$check optim.muon.two_track_steps=5" [tt8]="$c
     [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0" [adamw]="optimizer=adamw"
     [muon_fast]="optim.muon.fast_update=true" [lc5_fast]="$check optim.muon.lc_steps=5 optim.muon.fast_update=true"
     [lc5m_fast]="$check optim.muon.lc_steps=5m optim.muon.fast_update=true"
+    [lc6_fast]="$check optim.muon.lc_steps=6 optim.muon.fast_update=true"
+    [lc8_fast]="$check optim.muon.lc_steps=8 optim.muon.fast_update=true"
+    [lc12_fast]="$check optim.muon.lc_steps=12 optim.muon.fast_update=true"
     [gram_fast]="$check optim.muon.lc_steps=gram optim.muon.fast_update=true")
 nvidia-smi --query-gpu=name --format=csv,noheader
 methods=("$@")
