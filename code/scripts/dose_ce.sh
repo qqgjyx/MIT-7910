@@ -13,4 +13,5 @@ python -m optsplit.analysis.dose --suite ts10m_ce_svp --main ts10m_main --sweep 
     --max-loss 4 --offset 1 --ticks 4 3 2.5 2 1.75 1.5 1.4 1.3 --zoom 5000 --paths --out "$OUT"
 python -m optsplit.analysis.two_track --loss ce --level 1.81 --offset 1 --ticks 2 1.75 1.5 1.4 1.35 1.3 --out "$OUT"
 python scripts/neg_p_ce_numbers.py | tee "$OUT/neg_p_ce_numbers.txt"
+python -m optsplit.analysis.gpu_time --out "$OUT"
 echo DOSE CE DONE

@@ -87,13 +87,16 @@ def main():
     ap.add_argument('--target', type=float, help='validation loss to reach (default: AdamW\'s final one)')
     ap.add_argument('--offset', type=float, default=1)
     ap.add_argument('--ticks', type=float, nargs='+', default=[2, 1.75, 1.5, 1.4, 1.35, 1.3])
-    ap.add_argument('--zoom', type=float, nargs=2, default=[10, 30])
+    ap.add_argument('--zoom', type=float, nargs=2, default=[10, 27])
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
     out = Path(args.out)
     (out / 'figures').mkdir(parents=True, exist_ok=True)
 
     sec = {m: float(np.mean([step_time(Run(f'{p}_d{d}')) for d in (0, 1)])) for m, p in PILOTS.items()}
+    stand_in = np.isnan(sec['adamw'])  # AdamW not timed yet: Muon's time per step meanwhile
+    if stand_in:
+        sec['adamw'] = sec['muon']
     runs = [r for r in load_runs(['ts10m_ce_svp/*', 'ts10m_ce_tt/*', 'ts10m_main/muon_d*', 'ts10m_main/adamw_d0',
                                   'ts10m_lrsweep/muon_lr0.005']) if r.done]
     by_id = {r.id: r for r in runs}
@@ -104,7 +107,8 @@ def main():
         rows.append(dict(run=r.id, method=method(r), ms_per_step=1e3 * sec[method(r)], step_target=step,
                          min_target=step * sec[method(r)] / 60, min_total=r.series('eval', 'val_loss')[0][-1]
                          * sec[method(r)] / 60, val=float(r.series('eval', 'val_loss')[1][-1])))
-    lines = [' '.join(f'{m} {1e3 * s:.1f}' for m, s in sec.items()) + ' (ms per step)',
+    lines = [' '.join(f'{m} {1e3 * s:.1f}' for m, s in sec.items()) + ' (ms per step)'
+             + (" (AdamW: Muon's, stand-in until ts10m_ce_adamw_pilot has run)" if stand_in else ''),
              f'{"run":<44} {"ms/step":>7} {"step@" + format(target, ".4f"):>11} {"min@" + format(target, ".4f"):>10} '
              f'{"min total":>9} {"val":>7}']
     for x in rows:
