@@ -329,7 +329,8 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=1000, lr=1e-3,
          beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=300, round_iters=10, m=8, max_points=40,
-         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, resume_steps=2500, log=print):
+         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, resume_steps=2500, lm_first=False,
+         log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
     method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`, then at most
     `shorten_steps` steps of curve shortening within the level set on `obj_shorten` (default obj); `obj_check`
@@ -338,7 +339,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     the string method continues from them once without the springs (beta = 0), which cut corners off the level, with
     a quarter of the step size, warming up over 10% of `resume_steps` steps and annealing to 0 over the rest, and the
     LM stages run again; the points closer to the level are kept. Points still off the level get no insertion rounds
-    (the result is invalid). Returns (points, result)."""
+    (the result is invalid). With lm_first, the LM stages run (again) on resumed points, e.g. at a larger tol.
+    Returns (points, result)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
     obj_shorten = obj_shorten or obj
@@ -522,6 +524,10 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             X, stages = best[0], list(best[1])
         elif stash is not None:
             torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
+    if lm_first and st is not None:
+        for w in ws:
+            X = run_stage(X, w, iters, ramp=iters // 2)
+            stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
     if shorten_steps:
         X = shorten(X, shorten_steps)
         stages.append(dict(w='shorten', ratio=hist[-1]['ratio'], max_r=hist[-1].get('max_r')))
@@ -776,7 +782,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
                   tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
                   m=args.m, init=init, obj_shorten=mid, shorten_steps=args.shorten_steps,
                   shorten_beta=args.shorten_beta, stash=Path(out).with_suffix('.stage.pt'),
-                  resume_steps=args.resume_steps, log=say)
+                  resume_steps=args.resume_steps, lm_first=getattr(args, 'lm_first', False), log=say)
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
@@ -900,7 +906,8 @@ def task_list(A, args):
     (select.json; a level's 'ref' is the AdamW d0 checkpoint that defines it). Tier 1: profiles and N=10 bands at the
     late level and at AdamW steps 5000 and 397; tier 2: the same at steps 1440, 3300 and 7500; tier 3: N=20 bands,
     bent starts (step 1440, AdamW vs Muon, order 0) and walks at these six levels; tier 4: everything at steps 272
-    and 680; tier 5: everything at the reruns' late level (step 10000)."""
+    and 680; tier 5: everything at the reruns' late level (step 10000). After tier 2: 'band01', the N=10 bands that
+    missed tol, finished at tau = 0.1 from their saved points (no N=20 bands at the late level)."""
     main, rr = (A / 'select_main.json', A / 'main'), (A / 'select.json', A / 'rerun')
     sel = json.loads(rr[0].read_text()) if rr[0].exists() else {}
     step = {level: int(v['ref'].rsplit(':', 1)[1]) for level, v in sel.items()}
@@ -913,7 +920,12 @@ def task_list(A, args):
         for (f, d), level in levels[tier]:
             T += [(tier, 'profile', f, d, level, pair, None, None) for pair in PAIRS]
             T += [(tier, 'band', f, d, level, pair, 10, None) for pair in PAIRS]
-    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six for pair in PAIRS]
+    for (f, d), level in six:  # tau = 0.1 from the saved points of the N=10 bands that missed tol
+        for pair in PAIRS:
+            g = d / 'band' / f'{level}_{pair}_n10.json'
+            if g.exists() and g.with_suffix('.stage.pt').exists() and not json.loads(g.read_text())['ok']:
+                T.append((2, 'band01', f, d, level, pair, 10, None))
+    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six if d != main for pair in PAIRS]
     T += [(3, 'band', *rr, l, 'adamw-muon_d0', args.n, seed) for l in sel if step[l] == 1440 for seed in (1, 2)]
     T += [(3, 'walk', f, d, level, pair, None, None) for (f, d), level in six for pair in PAIRS]
     for tier in (4, 5):
@@ -929,6 +941,8 @@ def task_out(t, args):
         return d / 'profile' / f'{name}.json'
     if kind == 'walk':
         return d / 'walk' / f'{name}_mu{args.mu:g}.json'
+    if kind == 'band01':
+        return d / 'band_t0.1' / f'{name}_n{n}.json'
     return d / 'band' / (f'{name}_n{n}.json' if seed is None else f'{name}_n{n}_perturb{args.perturb}_s{seed}.json')
 
 
@@ -983,6 +997,12 @@ def cmd_work(args):
                     do_profile(model, sets, sa_, sb_, args, f)
                 elif kind == 'walk':
                     do_walk(model, sets, sa_, sb_, args, f)
+                elif kind == 'band01':  # from the saved points of the tau = 0.02 band (a link, so it stays)
+                    link = Path(f).with_suffix('.stage.pt')
+                    if not link.is_symlink():
+                        link.symlink_to(task_out((*t[:1], 'band', *t[2:]), args).with_suffix('.stage.pt'))
+                    do_band(model, sets, sa_, sb_, argparse.Namespace(**{**vars(args), 'tol': 0.1, 'resume_steps': 0,
+                                                                         'lm_first': True}), f, n=n)
                 else:
                     do_band(model, sets, sa_, sb_, args, f, n=n, perturb=args.perturb if seed else 0.0,
                             perturb_seed=seed or 1)
