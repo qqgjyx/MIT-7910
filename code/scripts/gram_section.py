@@ -44,13 +44,12 @@ RUNS |= {'AdamW': ('ts10m_main/adamw_d{d}', PILOTS['adamw']), 'exact': ('{svp}/m
 NEW = {'Gram LC': ('ts10m_ce_gram*/*gram_d[0-4]', 'ts10m_ce_gram_pilot_l40s/gram_fast',
                    'ts10m_ce_gram_pilot_l40s/muon_fast'),
        'LC5m': ('ts10m_ce_lcm*/*lc5m_d[0-4]', 'ts10m_ce_lcm_pilot/lc5m', 'ts10m_ce_lcm_pilot/muon')}
-# Times per step, all in step_times. CONSOLIDATED (suite name to come): one fast-path L40S timing job of every method,
-# runs <CONSOLIDATED>/<TIMED[method]>_d0 and _d1. Until then: the old-code pilots of RUNS, and for the new methods Muon's
-# old-code time times their ratio to Muon in a joint fast-path L40S job (NEW).
-CONSOLIDATED = None
+# Times per step, all in step_times. CONSOLIDATED: one fast-path L40S timing job of the methods in TIMED (job 30735954),
+# runs <CONSOLIDATED>/<TIMED[method]>_d0 and _d1. The others (the exact SVD, LC5m) keep the old-code pilots of RUNS, or
+# for the new methods Muon's old-code time times their ratio to Muon in a joint fast-path L40S job (NEW).
+CONSOLIDATED = 'ts10m_ce_timing_fast'
 TIMED = {MUON: 'muon_fast', 'LC5': 'lc5_fast', 'LC6': 'lc6_fast', 'LC8': 'lc8_fast', 'LC12': 'lc12_fast',
-         'LC12, equal GPU time': 'lc12_fast', 'exact': 'svd_p-0.3', 'AdamW': 'adamw', 'Gram LC': 'gram_fast',
-         'LC5m': 'lc5m_fast'}
+         'LC12, equal GPU time': 'lc12_fast', 'AdamW': 'adamw', 'Gram LC': 'gram_fast'}
 SHORT = {'Gram LC': 'Gram', 'LC5m': 'LC5m', MUON: 'Muon', 'LC5': 'LC5', 'exact': 'exact', 'AdamW': 'AdamW'}
 
 
@@ -64,12 +63,12 @@ def pilot_time(pilot):
 
 def step_times():
     """Seconds per training step of every method (nan: no L40S timing yet)."""
-    if CONSOLIDATED:
-        return {name: pilot_time(f'{CONSOLIDATED}/{t}') for name, t in TIMED.items()}
     sec = {name: pilot_time(p) for name, (_, p) in RUNS.items()}
     for name, (_, pilot, muon) in NEW.items():
         m = pilot_time(muon)  # an L40S job: Muon within 20% of its L40S time (ts10m_ce_gram_pilot: 47 ms, not L40S)
         sec[name] = sec[MUON] * pilot_time(pilot) / m if abs(m / sec[MUON] - 1) < 0.2 else np.nan
+    if CONSOLIDATED:
+        sec |= {name: pilot_time(f'{CONSOLIDATED}/{t}') for name, t in TIMED.items()}
     return sec
 
 
