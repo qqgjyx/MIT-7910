@@ -1,0 +1,43 @@
+{
+ "source": "ORCD analysis/ts10m_ce_smooth/numbers.txt: mean JS (bits) at equal step; AdamW vs Muon on the same order (mean of 5), floors: mean of the 10 pairs of data orders",
+ "steps": [
+  250,
+  500,
+  1000,
+  2000,
+  3000,
+  5000,
+  7500,
+  10000
+ ],
+ "adamw_vs_muon": [
+  0.119,
+  0.121,
+  0.102,
+  0.087,
+  0.079,
+  0.071,
+  0.062,
+  0.058
+ ],
+ "floor_adamw": [
+  0.131,
+  0.137,
+  0.127,
+  0.113,
+  0.103,
+  0.09,
+  0.073,
+  0.06
+ ],
+ "floor_muon": [
+  0.118,
+  0.128,
+  0.115,
+  0.102,
+  0.095,
+  0.081,
+  0.066,
+  0.058
+ ]
+}
