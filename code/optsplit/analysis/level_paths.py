@@ -1108,13 +1108,49 @@ def at_tol(r, tol):
             min((b['max_dev'] for b in cands), default=None))
 
 
+def _series(ax, x, y, ok, st, ls, marker):
+    ax.plot(x, y, ls=ls, lw=0.8, color=st['color'])
+    ax.plot(x[ok], y[ok], marker, ms=3, color=st['color'])
+    ax.plot(x[~ok], y[~ok], marker, ms=3, mfc='w', color=st['color'])
+
+
+def _finish(fig, axes, recs, h, labels, out):
+    """Fig. 1's x axis on axes (the level's training loss; on top, the level as a fraction of AdamW training), panel
+    labels and the legend below; saves to out."""
+    from optsplit.analysis.plots import panel_labels
+    from optsplit.analysis.rank_metrics import loss_axis
+    at = {}
+    for rs in recs.values():
+        for r in rs:
+            if r['step']:
+                at.setdefault(r['step'], []).append(r['probe'])
+    xs = [r['probe'] for rs in recs.values() for r in rs]
+    for ax in axes:
+        loss_axis(ax)
+        ax.set_xlim(max(xs) + 0.2, min(xs) - 0.02)
+        ax.set_xlabel('training loss at the level')
+        for i, s in enumerate(sorted(at)):  # the levels, as a fraction of AdamW training (10k steps), staggered
+            ax.text(np.mean(at[s]), 1.01 + 0.06 * (i % 2), f'{round(s / 100)}%', transform=ax.get_xaxis_transform(),
+                    ha='center', va='bottom', fontsize=5)
+    panel_labels(axes)
+    pad = 0.03 * 4.4 / fig.get_figheight()  # Fig. 1's space for the legend, whatever the figure's height
+    fig.legend(h, labels, loc='lower center', ncol=len(h), frameon=False, bbox_to_anchor=(0.5, -pad))
+    fig.tight_layout(rect=(0, pad, 1, 1))
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, bbox_inches='tight')
+    print(f'wrote {out}')
+
+
 def cmd_plot(args):
-    """Per tolerance (rows): the length ratios in weights and in predictions of the N=10 paths within it, and the
-    best held-out max |L - c| (open markers: no path within the tolerance) against the level."""
+    """Fig. 1 (--out), per tolerance (rows): the length ratios in weights and in predictions of the N=10 paths within
+    it, and the best held-out max |L - c| (open markers: no path within the tolerance) against the level. Next to it,
+    from the same records as the tables, with solid lines and squares for AdamW vs Muon order 1:
+    <out>_line.pdf (Fig. 2): the straight line's rise, prediction-space ratio and distance / distance from init;
+    <out>_robust.pdf (Fig. 3): the N=20 paths (length ratios, max |L - c|) and the level-set walks (length ratio in
+    weights, max |L - c|); open markers: max |L - c| > 0.02."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from optsplit.analysis.rank_metrics import loss_axis
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 14, 'axes.labelsize': 7,
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
@@ -1127,37 +1163,49 @@ def cmd_plot(args):
             gap = np.array([np.nan if g is None else g for _, g in res], dtype=float)
             ok = gap <= tol
             for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']), gap)):
-                ax.plot(x, y, ls=st['ls'], lw=0.8, color=st['color'])
-                ax.plot(x[ok], y[ok], 'o', ms=3, color=st['color'])
-                ax.plot(x[~ok], y[~ok], 'o', ms=3, mfc='w', color=st['color'])
+                _series(ax, x, y, ok, st, st['ls'], 'o')
         axes[row, 0].set(yscale='log', ylabel=f'$\\tau$ = {tol:g}', title='length / distance $-$ 1 (weights)')
         axes[row, 1].set(title='length / distance (predictions)')
         axes[row, 2].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
         axes[row, 2].axhline(tol, color='k', lw=0.5, ls=':')
-    at = {}
-    for rs in recs.values():
-        for r in rs:
-            if r['step']:
-                at.setdefault(r['step'], []).append(r['probe'])
-    xs = [r['probe'] for rs in recs.values() for r in rs]
-    for ax in axes.ravel():
-        loss_axis(ax)
-        ax.set_xlim(max(xs) + 0.2, min(xs) - 0.02)
-        ax.set_xlabel('training loss at the level')
-        for i, s in enumerate(sorted(at)):  # the levels, as a fraction of AdamW training (10k steps), staggered
-            ax.text(np.mean(at[s]), 1.01 + 0.06 * (i % 2), f'{round(s / 100)}%', transform=ax.get_xaxis_transform(),
-                    ha='center', va='bottom', fontsize=5)
-    from optsplit.analysis.plots import panel_labels
-    panel_labels(axes.ravel())
+    names = [STYLE[k]['label'] for k in STYLE]
+    marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
+             plt.Line2D([], [], color='k', marker='o', ms=3, mfc='w', ls='')]
     h = [plt.Line2D([], [], color=STYLE[k]['color'], ls=STYLE[k]['ls'], lw=0.9) for k in STYLE]
-    h += [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''), plt.Line2D([], [], color='k', marker='o', ms=3,
-                                                                              mfc='w', ls='')]
-    fig.legend(h, [STYLE[k]['label'] for k in STYLE] + ['within $\\tau$', 'missed $\\tau$'], loc='lower center',
-               ncol=6, frameon=False, bbox_to_anchor=(0.5, -0.03))
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.out, bbox_inches='tight')
-    print(f'wrote {args.out}')
+    _finish(fig, axes.ravel(), recs, h + marks, names + ['within $\\tau$', 'missed $\\tau$'], args.out)
+
+    out = Path(args.out)
+    mk = lambda k: 's' if k == 'adamw-muon_d1' else 'o'
+    h = [plt.Line2D([], [], color=STYLE[k]['color'], marker=mk(k), ms=3, lw=0.9) for k in STYLE]
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
+    for pair, rs in recs.items():
+        x, ok = np.array([r['probe'] for r in rs]), np.ones(len(rs), bool)
+        for ax, f in zip(axes, (lambda p: p['rise'], lambda p: p['pred_ratio'], lambda p: p['rel_distance']['all'])):
+            _series(ax, x, np.array([f(r['prof']) for r in rs]), ok, STYLE[pair], '-', mk(pair))
+    axes[0].set(title='rise: max $L - c$ (nats)')
+    axes[1].set(title='length / distance (predictions)')
+    axes[2].set(title='distance / mean distance from init')
+    _finish(fig, axes, recs, h, names, out.with_name(out.stem + '_line.pdf'))
+
+    fig, axes = plt.subplots(2, 3, figsize=(7.1, 4.4))
+    for pair, rs in recs.items():
+        x = np.array([r['probe'] for r in rs])
+        for row, key in enumerate(('n20', 'walk')):
+            get = lambda f: np.array([np.nan if r[key] is None else f(r[key]) for r in rs], dtype=float)
+            ok = np.array([r[key] is not None and r[key]['ok'] for r in rs])
+            ys = (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']), get(lambda b: b['max_dev']))
+            for col in ((0, 1, 2) if key == 'n20' else (0, 2)):
+                _series(axes[row, col], x, ys[col], ok, STYLE[pair], '-', mk(pair))
+    for row, name in enumerate(('$N = 20$ path', 'level-set walk')):
+        axes[row, 0].set(yscale='log', ylabel=name, title='length / distance $-$ 1 (weights)')
+        axes[row, 2].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
+        axes[row, 2].axhline(0.02, color='k', lw=0.5, ls=':')
+        lo, hi = axes[row, 2].get_ylim()
+        axes[row, 2].set_ylim(min(lo, 1e-3), max(hi, 0.1))  # two labelled powers of 10, as in Fig. 1
+    axes[0, 1].set(title='length / distance (predictions)')
+    axes[1, 1].axis('off')
+    _finish(fig, [*axes[0], axes[1, 0], axes[1, 2]], recs, h + marks,
+            names + ['within $\\tau$ = 0.02', 'missed $\\tau$'], out.with_name(out.stem + '_robust.pdf'))
 
 
 NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs Muon, order 1',

@@ -8,6 +8,7 @@
 \usepackage{graphicx}
 \usepackage{float}
 \usepackage{booktabs}
+\usepackage[capitalise]{cleveref}
 \usepackage[font=small,labelfont=bf,skip=3pt]{caption}
 \captionsetup[figure]{font=footnotesize}
 \captionsetup[table]{font=footnotesize}
@@ -31,11 +32,11 @@ joined by a path whose loss stays within 0.1 nats of the level.
 \begin{itemize}\setlength{\itemsep}{0pt}
 \item \textbf{Farther apart.} Their distance, divided by the mean distance each model travelled from the
 initialization, is 1.13--1.39 against 0.67--1.24 for the floor. Along the straight line between them the loss rises
-0.4--3.9 nats above the level, against 0--1.6 for the floor.
+0.4--3.9 nats above the level, against 0--1.6 for the floor (\cref{fig:line}).
 \item \textbf{In predictions, the paths tell AdamW--Muon from the floor up to 50\% of training.} We sum how much the
 next-token predictions change along the constant-loss path and divide by how much they differ between its endpoints.
 At every level up to 50\%, this ratio is higher for AdamW--Muon than for the floor, with 10 points (2.1--8.4 against
-1.7--4.1) and with 20. At 75\% the two pairs overlap.
+1.7--4.1) and with 20 (\cref{fig:robust}). At 75\% the two pairs overlap.
 \item \textbf{In weights, they do so only at 4--14\%.} There, the AdamW--Muon path is longer than the floor's at
 every level: 0.2--1.2\% longer than the straight line against at most 0.3\% with 10 points, and 1.4--5.8\% against at
 most 1.6\% with 20. At 3\% this holds with 10 points but not with 20. From 33\% on, the floor's 20-point paths are as long as AdamW--Muon's. These later lengths mostly
@@ -54,6 +55,15 @@ optimizer. Top row: paths valid at $\tau = 0.02$ nats; bottom row: at $\tau = 0.
 over the straight-line distance, minus 1 (log scale); only valid paths. (b, e) Path length in prediction space over
 the endpoints' prediction distance; only valid paths. (c, f) Gap: the largest held-out deviation of the loss from its
 target along the path, for the pair's best 10-point run; dotted: $\tau$; open markers: no valid path.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.93\linewidth]{level_paths/level_paths_line.pdf}
+\caption{The straight line between the endpoints against the loss level: (a) rise, the largest loss excess in nats;
+(b) prediction-space ratio; (c) distance over the mean distance travelled from initialization. Squares: AdamW vs Muon,
+order 1.}
+\label{fig:line}
 \end{figure}
 
 \begin{table}[H]
@@ -99,6 +109,14 @@ bound, but we cannot verify that we found it.
 and Muon GPT-2 models by low-barrier curves; they report barriers, not path lengths, and have no shared
 initialization, no mid-training levels and no data-order floor. The level-set walk follows Huang et al.'s Hessian
 null-space continuation (arXiv 2609.38081).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.93\linewidth]{level_paths/level_paths_robust.pdf}
+\caption{Robustness checks at $\tau = 0.02$: (a--c) 20-point constant-loss paths (detour, prediction-space ratio,
+gap) and (d, e) level-set walks (detour, gap). Open markers: the gap exceeds $\tau$; squares: AdamW vs Muon, order 1.}
+\label{fig:robust}
+\end{figure}
 
 \begin{table}[H]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
