@@ -15,7 +15,9 @@
 #     walks in priority order (tiers <= MAXTIER, default 4; see task_list). The late level needs no reruns.
 #   - GROUP=1: one job per job name runs at a time (submit the same name with several GPU types): the first to start
 #     holds the others and releases them when it ends or is requeued (of two that start together, the lower id stays);
-#   - KINDS="walk": the workers take only these kinds of tasks (profile, band, band01, walk);
+#   - KINDS="walk": the workers take only these kinds of tasks (profile, band, band01, walk); MINTIER: the lowest tier;
+#   - RUNS (TRAIN=1): the reruns to train and select checkpoints of (default orders 0 and 1); with other runs, LOSSES
+#     names the file of their losses, and select.json (moved away first) is rebuilt from all losses_rerun*.json;
 #   - YIELD=1: the workers take no new task while another job of the user, not a level-paths one, waits for this
 #     partition (for deferred work on shared slots, with --nice). YIELD=limit: only while that job waits for a per-user limit
 #     (it would start if this job ended).
@@ -33,6 +35,9 @@ MEM=${GPU##*, }
 if [ "$MEM" -ge 90000 ]; then W=4; elif [ "$MEM" -ge 70000 ]; then W=3; else W=2; fi  # up to 40 points each
 WORKERS=${WORKERS:-$W}
 MAXTIER=${MAXTIER:-4}
+MINTIER=${MINTIER:-1}
+RUNS=${RUNS:-adamw_d0 adamw_d1 muon_d0 muon_d1}
+LOSSES=${LOSSES:-$A/losses_rerun.json}
 TRAIN=${TRAIN:-0}
 if [ "$TRAIN" = 1 ] && [[ "$GPU" != *L40S* ]]; then echo "training runs only on L40S"; TRAIN=0; fi
 LP="python -m optsplit.analysis.level_paths --chunk 64"
@@ -59,7 +64,7 @@ mine() {  # take the lock of $1 unless another running job holds it (a pending, 
 train() {  # the reruns that no other running job is training, all at once; a failed run is reported at once
     [ "$TRAIN" = 1 ] || return 0
     local r p tp= s=0
-    for r in adamw_d0 adamw_d1 muon_d0 muon_d1; do
+    for r in $RUNS; do
         if [ -e $R/$r/done ] || ! mine $R/$r/train.lock; then continue; fi
         ( python -m optsplit.train $R/$r/config.yaml >> $R/$r/train.out 2>&1 ||
             { echo "FAILED: training $r (see $R/$r/train.out)"; exit 1; } ) &
@@ -68,7 +73,7 @@ train() {  # the reruns that no other running job is training, all at once; a fa
     for p in $tp; do wait $p || s=1; done
     return $s
 }
-all_done() { for r in adamw_d0 adamw_d1 muon_d0 muon_d1; do [ -e $R/$r/done ] || return 1; done; }
+all_done() { for r in $RUNS; do [ -e $R/$r/done ] || return 1; done; }
 training_alive() { [ -n "$(find $R -mmin -20 2>/dev/null | head -1)" ]; }
 release_eval() {  # held level-paths groups with no running job: release them (there is new work)
     run=$(squeue -u $USER -h -t R -o %j)
@@ -79,7 +84,7 @@ release_eval() {  # held level-paths groups with no running job: release them (t
 
 pids=
 for i in $(seq $WORKERS); do  # a failed worker is reported at once (exit 3: waiting for the reruns)
-    ( $LP work $A --max-tier $MAXTIER ${KINDS:+--kinds $KINDS} > $A/logs/work-$SLURM_JOB_ID-$i.out 2>&1 || { s=$?; [ $s = 3 ] ||
+    ( $LP work $A --min-tier $MINTIER --max-tier $MAXTIER ${KINDS:+--kinds $KINDS} > $A/logs/work-$SLURM_JOB_ID-$i.out 2>&1 || { s=$?; [ $s = 3 ] ||
         echo "FAILED: worker $i (exit $s): see $A/logs/work-$SLURM_JOB_ID-$i.out"; exit $s; } ) &
     pids="$pids $!"
 done
@@ -93,8 +98,8 @@ if [ "$TRAIN" = 1 ]; then
     done
 fi
 if all_done && [ ! -e $A/select.json ] && mine $A/select.lock; then
-    [ -e $A/losses_rerun.json ] || fg $LP losses 'ts10m_level_paths/*' --out $A/losses_rerun.json || fail losses
-    fg $LP select --losses $A/losses_rerun.json --out $A/select.json \
+    [ -e $LOSSES ] || fg $LP losses $(for r in $RUNS; do echo ts10m_level_paths/$r; done) --out $LOSSES || fail losses
+    fg $LP select --losses $A/losses_rerun*.json --out $A/select.json \
         --levels $(for s in $LEVELS; do echo ts10m_level_paths/adamw_d0:$s; done) || fail select
     fg $LP prune $A/select.json || fail prune
     release_eval

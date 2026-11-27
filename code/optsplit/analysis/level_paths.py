@@ -925,6 +925,10 @@ def do_walk(model, sets, sa_, sb_, args, out):
 
 PAIRS = {'adamw-muon_d0': ('adamw_d0', 'muon_d0'), 'adamw-muon_d1': ('adamw_d1', 'muon_d1'),
          'adamw_d0-d1': ('adamw_d0', 'adamw_d1'), 'muon_d0-d1': ('muon_d0', 'muon_d1')}
+FIRST = list(PAIRS)  # data orders 0 and 1; tier 6 adds orders 2-4: AdamW vs Muon per order, and all order pairs
+PAIRS.update({f'adamw-muon_d{i}': (f'adamw_d{i}', f'muon_d{i}') for i in range(2, 5)})
+PAIRS.update({f'{o}_d{i}-d{j}': (f'{o}_d{i}', f'{o}_d{j}') for o in ('adamw', 'muon') for i in range(5)
+              for j in range(i + 1, 5) if (i, j) != (0, 1)})
 
 
 def cmd_select(args):
@@ -1012,7 +1016,9 @@ TIERS = {397: 1, 5000: 1, 1440: 2, 3300: 2, 7500: 2, 272: 4, 680: 4, 10000: 5}
 def task_list(A, args):
     """The work of results/level_paths.tex in priority order, as (tier, kind, select file, output dir, level, pair, n,
     perturbation seed). The late level uses the ts10m_main checkpoints (select_main.json), the others the reruns
-    (select.json; a level's 'ref' is the AdamW d0 checkpoint that defines it). Tier 1: profiles and N=10 bands at the
+    (select.json; a level's 'ref' is the AdamW d0 checkpoint that defines it). Tiers 1-5 cover the FIRST pairs (data
+    orders 0 and 1), tier 6 the other PAIRS: profiles, N=20 bands (not at the late level) and walks at the levels of
+    tiers 1-4, once the select files pair them. Tier 1: profiles and N=10 bands at the
     late level and at AdamW steps 5000 and 397; tier 2: the same at steps 1440, 3300 and 7500; tier 3: N=20 bands,
     bent starts (step 1440, AdamW vs Muon, order 0) and walks at these six levels; tier 4: everything at steps 272
     and 680; tier 5: everything at the reruns' late level (step 10000). After tier 2: 'band01', the N=10 bands that
@@ -1027,19 +1033,24 @@ def task_list(A, args):
     T = []
     for tier in (1, 2):
         for (f, d), level in levels[tier]:
-            T += [(tier, 'profile', f, d, level, pair, None, None) for pair in PAIRS]
-            T += [(tier, 'band', f, d, level, pair, 10, None) for pair in PAIRS]
+            T += [(tier, 'profile', f, d, level, pair, None, None) for pair in FIRST]
+            T += [(tier, 'band', f, d, level, pair, 10, None) for pair in FIRST]
     for (f, d), level in six:  # tau = 0.1 from the saved points of the N=10 bands that missed tol
-        for pair in PAIRS:
+        for pair in FIRST:
             g = d / 'band' / f'{level}_{pair}_n10.json'
             if g.exists() and g.with_suffix('.stage.pt').exists() and not json.loads(g.read_text())['ok']:
                 T.append((2, 'band01', f, d, level, pair, 10, None))
-    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six if d != main[1] for pair in PAIRS]
+    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six if d != main[1] for pair in FIRST]
     T += [(3, 'band', *rr, l, 'adamw-muon_d0', args.n, seed) for l in sel if step[l] == 1440 for seed in (1, 2)]
-    T += [(3, 'walk', f, d, level, pair, None, None) for (f, d), level in six for pair in PAIRS]
+    T += [(3, 'walk', f, d, level, pair, None, None) for (f, d), level in six for pair in FIRST]
     for tier in (4, 5):
         T += [(tier, kind, f, d, level, pair, n, None) for (f, d), level in levels[tier]
-              for kind, n in (('profile', None), ('band', 10), ('band', 20), ('walk', None)) for pair in PAIRS]
+              for kind, n in (('profile', None), ('band', 10), ('band', 20), ('walk', None)) for pair in FIRST]
+    new = [((f, d), level, pair) for (f, d), level in six + levels[4] for pair in PAIRS
+           if pair not in FIRST and pair in json.loads(f.read_text())[level]['pairs']]
+    T += [(6, 'profile', f, d, level, pair, None, None) for (f, d), level, pair in new]
+    T += [(6, 'band', f, d, level, pair, 20, None) for (f, d), level, pair in new if d != main[1]]
+    T += [(6, 'walk', f, d, level, pair, None, None) for (f, d), level, pair in new]
     return T
 
 
@@ -1093,7 +1104,8 @@ def cmd_work(args):
             if others:
                 print(f'yielding the GPU: {others[0]} waits', flush=True)
                 return 0
-        T = [t for t in task_list(A, args) if t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
+        T = [t for t in task_list(A, args)
+             if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
         for t in T:
             f = task_out(t, args)
             oom = Path(f).with_suffix('.oom')
@@ -1434,6 +1446,7 @@ def main():
     s = sub.add_parser('work')
     s.add_argument('dir', help='the analysis directory (select_main.json, select.json, outputs)')
     s.add_argument('--max-tier', type=int, default=4)
+    s.add_argument('--min-tier', type=int, default=1)
     s.add_argument('--kinds', nargs='*', help='only these kinds of tasks (profile, band, band01, walk)')
     s.add_argument('--perturb', type=float, default=0.1)
     band_args(s)
