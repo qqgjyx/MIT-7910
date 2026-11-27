@@ -19,10 +19,12 @@ from optsplit.config import root_dir
 
 
 def by_seed(runs):
+    """{replicate: run}; the replicate is the data seed, plus 1000 x the init seed for runs not from init 0."""
     out = {}
     for r in runs:
-        assert r.data_seed not in out, f'two runs with data_seed {r.data_seed}: {out[r.data_seed]}, {r}'
-        out[r.data_seed] = r
+        s = r.data_seed + 1000 * r.init_seed
+        assert s not in out, f'two runs with data_seed {r.data_seed}, init_seed {r.init_seed}: {out[s]}, {r}'
+        out[s] = r
     return out
 
 

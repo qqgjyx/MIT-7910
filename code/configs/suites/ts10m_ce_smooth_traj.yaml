@@ -1,0 +1,19 @@
+# Smoothed Muon on data orders 3-4 with the checkpoint triples of ts10m_traj, for the whole-model metrics at training
+# loss 1.81 on all five orders (ts10m_ce_smooth/smuon_d3, d4 keep only the first and last checkpoint). Otherwise the
+# settings of ts10m_ce_smooth/smuon_d1, d2. ckpt/ and preds/ go to scratch (slurm/scratch_links.sh).
+suite: ts10m_ce_smooth_traj
+base: ../base/tinystories_10m.yaml
+overrides:
+  train.loss: ce
+  optimizer: smuon
+  optim.smuon.smooth: 0.65
+  optim.smuon.lr: 0.01
+  optim.adamw.lr: 2.0e-3
+  optim.muon.lr: 0.01
+  log.ckpt_steps: {every: 1000, geometric: 12, extra: [25, 26, 27, 50, 51, 52, 100, 101, 102, 150, 151, 152, 200, 201,
+    202, 250, 251, 252, 300, 301, 302, 400, 401, 402, 500, 501, 502, 600, 601, 602, 800, 801, 802, 1000, 1001, 1002,
+    1250, 1251, 1252, 1500, 1501, 1502, 2000, 2001, 2002, 2500, 2501, 2502, 3000, 3001, 3002, 4000, 4001, 4002,
+    5000, 5001, 5002, 6000, 6001, 6002, 7000, 7001, 7002, 8000, 8001, 8002, 9000, 9001, 9002, 9998, 9999]}
+name: "{optimizer}_d{train.data_seed}"
+runs:
+  - {train.data_seed: [3, 4]}

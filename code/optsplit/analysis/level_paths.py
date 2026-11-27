@@ -945,27 +945,28 @@ def cmd_select(args):
         else:
             suite, c = args.suite, float(level)
         pick = {}
-        for run in {r for pair in PAIRS.values() for r in pair}:
+        for run in {r for pair in PAIRS.values() for r in pair if f'{suite}/{r}' in losses}:  # those with losses
             steps = {int(s): l for s, l in losses[f'{suite}/{run}'].items() if int(s) > 0}
             s = min(steps, key=lambda s: abs(steps[s] - c))
             pick[run] = (f'{suite}/{run}:{s}', steps[s])
         out[f'{c:.3f}'] = dict(ref=level, c=c, pick=pick, pairs={k: [pick[x][0], pick[y][0], abs(pick[x][1] - pick[y][1])]
-                                                       for k, (x, y) in PAIRS.items()})
+                                                       for k, (x, y) in PAIRS.items() if x in pick and y in pick})
         print(f'c={c:.4f}: ' + ', '.join(f'{r} {s.split(":")[1]} ({l - c:+.4f})' for r, (s, l) in sorted(pick.items())))
     Path(args.out).write_text(json.dumps(out, indent=1))
 
 
 def cmd_prune(args):
-    """Delete the checkpoints of the rerun suite that no level selected (keeps step 0, the last step and the picks)."""
-    sel = json.loads(Path(args.select).read_text())
+    """Delete the checkpoints of the rerun suite that no level of the select files picked (keeps step 0, the last step
+    and the picks)."""
+    sel = [v for f in args.select for v in json.loads(Path(f).read_text()).values()]
     keep = {}
-    for level in sel.values():
+    for level in sel:
         for spec, _ in level['pick'].values():
             run, step = spec.rsplit(':', 1)
             keep.setdefault(run, set()).add(int(step))
     for run, steps in keep.items():
         r = Run(run)
-        assert r.id.startswith('ts10m_level_paths/'), f'prune only touches ts10m_level_paths, not {r.id}'
+        assert r.id.startswith('ts10m_level_paths'), f'prune only touches ts10m_level_paths*, not {r.id}'
         last = r.cfg.train.max_steps
         for s in r.ckpt_steps:
             if s not in steps | {0, last}:
@@ -1028,7 +1029,7 @@ def task_list(A, args):
     step = {level: int(v['ref'].rsplit(':', 1)[1]) for level, v in sel.items()}
     by_tier = lambda k: sorted((l for l in sel if TIERS.get(step[l]) == k), key=lambda l: list(TIERS).index(step[l]))
     levels = {k: [(rr, l) for l in by_tier(k)] for k in (1, 2, 4, 5)}
-    levels[1] = [(main, l) for l in json.loads(main[0].read_text())] + levels[1]
+    levels[1] = [(main, l) for l in (json.loads(main[0].read_text()) if main[0].exists() else {})] + levels[1]
     six = levels[1] + levels[2]
     T = []
     for tier in (1, 2):
@@ -1070,7 +1071,7 @@ def reruns_alive(A):
     """Something is still making the reruns or the selection: a file of the reruns or the selection lock changed in
     the last 20 minutes."""
     recent = lambda f: time.time() - f.stat().st_mtime < 1200
-    R = Path(os.environ['OPTSPLIT_ROOT']) / 'runs' / 'ts10m_level_paths'
+    R = Path(os.environ['OPTSPLIT_ROOT']) / 'runs' / os.environ.get('LP_SUITE', 'ts10m_level_paths')
     lock = A / 'select.lock'
     return (lock.exists() and recent(lock)) or any(recent(f) for f in R.rglob('*') if f.exists())
 
@@ -1105,7 +1106,8 @@ def cmd_work(args):
                 print(f'yielding the GPU: {others[0]} waits', flush=True)
                 return 0
         T = [t for t in task_list(A, args)
-             if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
+             if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)
+             and (not args.band_n or t[1] != 'band' or t[6] in args.band_n and t[7] is None)]
         for t in T:
             f = task_out(t, args)
             oom = Path(f).with_suffix('.oom')
@@ -1424,7 +1426,7 @@ def main():
     s.add_argument('out_dirs', nargs='+')
     s.add_argument('--levels', type=int, nargs='*')
     s = sub.add_parser('prune')
-    s.add_argument('select')
+    s.add_argument('select', nargs='+')
     s = sub.add_parser('profile')
     s.add_argument('a')
     s.add_argument('b')
@@ -1448,6 +1450,7 @@ def main():
     s.add_argument('--max-tier', type=int, default=4)
     s.add_argument('--min-tier', type=int, default=1)
     s.add_argument('--kinds', nargs='*', help='only these kinds of tasks (profile, band, band01, walk)')
+    s.add_argument('--band-n', type=int, nargs='*', help='only the straight-start bands of these N')
     s.add_argument('--perturb', type=float, default=0.1)
     band_args(s)
     s = sub.add_parser('run')

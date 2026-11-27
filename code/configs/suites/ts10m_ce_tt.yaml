@@ -24,5 +24,5 @@ runs:
      name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
   - {optim.muon.lc_steps: 12, train.max_steps: 7391, schedule.warmup_steps: 148, train.data_seed: [0, 1, 2],
      name: "muon_p{optim.muon.sv_power}_lc12_eqtime_d{train.data_seed}"}
-  - {optim.muon.lc_steps: [8, 5], train.data_seed: [3, 4],     # data orders 3-4 of LC5 and LC8, beside Gram LC's
+  - {optim.muon.lc_steps: [12, 8, 5], train.data_seed: [3, 4],     # data orders 3-4 of LC5, LC8, LC12, beside Gram LC's
      name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}

@@ -14,3 +14,4 @@ overrides:
 name: "{optimizer}_d{train.data_seed}"
 runs:
   - {optimizer: [sgd, adamw, muon], train.data_seed: [0, 1, 2]}
+  - {optimizer: [adamw, muon], train.data_seed: [3, 4]}  # the metrics at training loss 1.81 on all five orders

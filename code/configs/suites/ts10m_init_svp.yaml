@@ -1,0 +1,18 @@
+# Init seeds 1 and 2 (data order 0) of the exact U S^p V^T runs at Muon's rate 0.01 (ts10m_ce_svp, its settings), with
+# train.init_seed: p = -0.3 (with its float64 check, as there) first, then the other powers of the dose figure in the
+# order they are launched. Runs go to ts10m_ce_svp_i1/, ts10m_ce_svp_i2/; references: ts10m_traj_i1/, _i2/.
+suite: ts10m_ce_svp_i{train.init_seed}
+base: ../base/tinystories_10m.yaml
+overrides:
+  optimizer: muon
+  measure.hessian: false
+  measure.delta_loss: false
+  log.ckpt_optimizer: false
+  log.preds: true
+  log.ckpt_steps: {every: 1000, geometric: 0, extra: [600, 800, 1250, 1500]}
+name: "muon_p{optim.muon.sv_power}_lr{optim.muon.lr}_d{train.data_seed}"
+runs:
+  - {optim.muon.lr: 0.01, optim.muon.sv_power: -0.3, train.data_seed: 0, train.init_seed: [1, 2],
+     log.two_track_check: [[10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]]}
+  - {optim.muon.lr: 0.01, optim.muon.sv_power: [0.0, -0.1, -0.5, 0.25, 0.5, -0.75, 0.75, -1.0], train.data_seed: 0,
+     train.init_seed: [1, 2]}

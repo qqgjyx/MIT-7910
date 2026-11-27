@@ -1,0 +1,21 @@
+# Init seeds 1 and 2 (data order 0) of the cheap approximations of p = -0.3 at Muon's rate 0.01: LC12, LC8 and LC5
+# (ts10m_ce_tt) and Gram LC (ts10m_ce_gram), with train.init_seed, all with the batched update (optim.muon.fast_update:
+# the same arithmetic up to bfloat16 rounding; ts10m_ce_tt ran without it) and the float64 check of the update at the
+# log.two_track_check steps. No stored outputs; checkpoints only at steps 0 and 10000 (no figure reads them). Runs go
+# to ts10m_ce_lc_i1/, ts10m_ce_lc_i2/ under the names of ts10m_ce_tt and ts10m_ce_gram.
+suite: ts10m_ce_lc_i{train.init_seed}
+base: ../base/tinystories_10m.yaml
+overrides:
+  optimizer: muon
+  optim.muon.lr: 0.01
+  optim.muon.sv_power: -0.3
+  optim.muon.fast_update: true
+  measure.hessian: false
+  measure.delta_loss: false
+  log.preds: false
+  log.ckpt_optimizer: false
+  log.ckpt_steps: {every: 0, geometric: 0}
+  log.two_track_check: [10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]
+name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"
+runs:
+  - {optim.muon.lc_steps: [12, 8, 5, gram], train.data_seed: 0, train.init_seed: [1, 2]}

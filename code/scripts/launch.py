@@ -2,7 +2,8 @@
 
 Suite file:
 
-    suite: ts10m_main                      # runs go to $OPTSPLIT_ROOT/runs/<suite>/<name>/
+    suite: ts10m_main                      # runs go to $OPTSPLIT_ROOT/runs/<suite>/<name>/ ({dotted.key} as in name:
+                                           # one file can fill several suites, e.g. ts10m_traj_i{train.init_seed})
     base: ../base/tinystories_10m.yaml     # relative to the suite file
     overrides: {train.max_steps: 6000}     # dotted keys, applied to every run
     name: "{optimizer}_d{train.data_seed}" # default name template, {dotted.key} looked up in the
@@ -97,10 +98,10 @@ def expand(suite_file):
             if parent and not (run_dir(parent) / 'config.yaml').exists():
                 raise SystemExit(f'launch the parent {parent} first')
             cfg = load_config(run_dir(parent) / 'config.yaml' if parent else base, over)
-            cfg.suite = suite['suite']
+            cfg.suite = format_name(suite['suite'], cfg)
             cfg.name = format_name(template, cfg)
             runs.append(cfg)
-    names = [c.name for c in runs]
+    names = [f'{c.suite}/{c.name}' for c in runs]
     dups = sorted({n for n in names if names.count(n) > 1})
     if dups:
         raise SystemExit(f'duplicate run names: {dups}')
@@ -130,14 +131,15 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     suite, runs = expand(args.suite_file)
+    suite = re.sub(r'\{[^{}]+\}', '', suite)  # jobs/ and the job name of a suite template
     if args.only:
         runs = [c for c in runs if re.search(args.only, c.name)]
 
     todo = []
     for cfg in runs:
-        d = run_dir(f'{suite}/{cfg.name}')
+        d = run_dir(f'{cfg.suite}/{cfg.name}')
         if (d / 'done').exists():
-            print(f'done      {cfg.name}')
+            print(f'done      {cfg.suite}/{cfg.name}')
             continue
         if cfg.fork.parent is not None:
             parent = run_dir(cfg.fork.parent) / 'fork' / f'{cfg.fork.step:07d}.pt'
@@ -148,7 +150,7 @@ def main(argv=None):
         if path.exists() and load_yaml(path) != cfg and not args.force:
             raise SystemExit(f'{path} exists with different content (use --force to overwrite)')
         todo.append((cfg, path))
-        print(f'todo      {cfg.name}')
+        print(f'todo      {cfg.suite}/{cfg.name}')
     if not todo:
         print('nothing to run')
         return

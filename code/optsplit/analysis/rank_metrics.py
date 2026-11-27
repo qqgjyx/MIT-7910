@@ -158,8 +158,8 @@ def mean_abs_pairs(vals):
 
 def rank(runs, refs, levels, cache):
     opts = [o for o in ('adamw', 'muon', 'smuon', 'sgd') if any(r.optimizer == o for r in runs)]
-    seeds = sorted({r.data_seed for r in runs})
-    by = {(r.optimizer, r.data_seed): r for r in runs}
+    seeds = sorted({(r.data_seed, r.init_seed) for r in runs})  # replicates: data order and initialization
+    by = {(r.optimizer, (r.data_seed, r.init_seed)): r for r in runs}
     pts = {r.id: run_points(r, refs, cache) for r in runs}
     res = {}
     for k in METRICS:

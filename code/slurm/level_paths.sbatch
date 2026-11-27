@@ -18,6 +18,9 @@
 #   - KINDS="walk": the workers take only these kinds of tasks (profile, band, band01, walk); MINTIER: the lowest tier;
 #   - RUNS (TRAIN=1): the reruns to train and select checkpoints of (default orders 0 and 1); with other runs, LOSSES
 #     names the file of their losses, and select.json (moved away first) is rebuilt from all losses_rerun*.json;
+#   - LP_SUITE, LP_DIR: another rerun suite and analysis directory (default ts10m_level_paths, analysis/level_paths), e.g.
+#     the init seeds (scripts/init_seeds_submit.sh); LEVELS: the AdamW d0 steps of the levels; MAIN_LEVEL: a step whose
+#     level goes to select_main.json (main/ outputs) from the reruns themselves; BAND_N: only bands of these N;
 #   - YIELD=1: the workers take no new task while another job of the user, not a level-paths one, waits for this
 #     partition (for deferred work on shared slots, with --nice). YIELD=limit: only while that job waits for a per-user limit
 #     (it would start if this job ended).
@@ -26,10 +29,12 @@
 source "${OPTSPLIT_CODE:-$PWD}/slurm/env.sh" || exit 1
 command -v python > /dev/null || { echo "no python: slurm/env.sh not found from $PWD"; exit 1; }
 cd "$OPTSPLIT_CODE"
-R=$OPTSPLIT_ROOT/runs/ts10m_level_paths
-A=$OPTSPLIT_ROOT/analysis/level_paths
+export LP_SUITE=${LP_SUITE:-ts10m_level_paths}
+R=$OPTSPLIT_ROOT/runs/$LP_SUITE
+A=${LP_DIR:-$OPTSPLIT_ROOT/analysis/level_paths}
+mkdir -p $A/logs
 # the AdamW d0 checkpoints whose loss defines each level (tiers: optsplit.analysis.level_paths.TIERS)
-LEVELS="397 5000 1440 3300 7500 272 680 10000"
+LEVELS=${LEVELS:-397 5000 1440 3300 7500 272 680 10000}
 GPU=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)
 MEM=${GPU##*, }
 if [ "$MEM" -ge 90000 ]; then W=4; elif [ "$MEM" -ge 70000 ]; then W=3; else W=2; fi  # up to 40 points each
@@ -84,7 +89,7 @@ release_eval() {  # held level-paths groups with no running job: release them (t
 
 pids=
 for i in $(seq $WORKERS); do  # a failed worker is reported at once (exit 3: waiting for the reruns)
-    ( $LP work $A --min-tier $MINTIER --max-tier $MAXTIER ${KINDS:+--kinds $KINDS} > $A/logs/work-$SLURM_JOB_ID-$i.out 2>&1 || { s=$?; [ $s = 3 ] ||
+    ( $LP work $A --min-tier $MINTIER --max-tier $MAXTIER ${KINDS:+--kinds $KINDS} ${BAND_N:+--band-n $BAND_N} > $A/logs/work-$SLURM_JOB_ID-$i.out 2>&1 || { s=$?; [ $s = 3 ] ||
         echo "FAILED: worker $i (exit $s): see $A/logs/work-$SLURM_JOB_ID-$i.out"; exit $s; } ) &
     pids="$pids $!"
 done
@@ -98,10 +103,14 @@ if [ "$TRAIN" = 1 ]; then
     done
 fi
 if all_done && [ ! -e $A/select.json ] && mine $A/select.lock; then
-    [ -e $LOSSES ] || fg $LP losses $(for r in $RUNS; do echo ts10m_level_paths/$r; done) --out $LOSSES || fail losses
+    [ -e $LOSSES ] || fg $LP losses $(for r in $RUNS; do echo $LP_SUITE/$r; done) --out $LOSSES || fail losses
+    if [ -n "${MAIN_LEVEL:-}" ]; then  # before select.json: workers may start on it, prune keeps its picks
+        fg $LP select --losses $A/losses_rerun*.json --out $A/select_main.json --suite $LP_SUITE \
+            --levels $LP_SUITE/adamw_d0:$MAIN_LEVEL || fail select
+    fi
     fg $LP select --losses $A/losses_rerun*.json --out $A/select.json \
-        --levels $(for s in $LEVELS; do echo ts10m_level_paths/adamw_d0:$s; done) || fail select
-    fg $LP prune $A/select.json || fail prune
+        --levels $(for s in $LEVELS; do echo $LP_SUITE/adamw_d0:$s; done) || fail select
+    fg $LP prune $A/select.json ${MAIN_LEVEL:+$A/select_main.json} || fail prune
     release_eval
 fi
 waiting=0
