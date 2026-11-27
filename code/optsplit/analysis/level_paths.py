@@ -339,7 +339,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     the string method continues from them once without the springs (beta = 0), which cut corners off the level, with
     a quarter of the step size, warming up over 10% of `resume_steps` steps and annealing to 0 over the rest, and the
     LM stages run again; the points closer to the level are kept. Points still off the level get no insertion rounds
-    (the result is invalid). With lm_first, the LM stages run (again) on resumed points, e.g. at a larger tol.
+    (the result is invalid); after such a continuation, the insertion rounds' strings run without springs too.
+    With lm_first, the LM stages run (again) on resumed points, e.g. at a larger tol.
     Returns (points, result)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
@@ -579,7 +580,7 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
                 new.append((P[k] + P[k + 1]) / 2)
         X = torch.stack(new)
         if round_steps:
-            X = string(X, round_steps, scale=0.25)  # a gentle continuation from the path so far
+            X = string(X, round_steps, scale=0.25, springs=sum(s['w'] == 'string' for s in stages) < 2)  # a gentle continuation
         X = run_stage(X, ws[-1], round_iters, ramp=round_iters // 2)
         if shorten_steps:
             X = shorten(X, shorten_steps)
