@@ -673,6 +673,22 @@ def _alive(pid):
     return True
 
 
+_RUNNING = [0.0, None]
+
+
+def running_jobs():
+    """The user's running Slurm jobs (asked at most once a minute); None while Slurm cannot be reached."""
+    if time.time() - _RUNNING[0] > 60:
+        try:
+            q = subprocess.run(['squeue', '-h', '-t', 'R', '-u', os.environ.get('USER', ''), '-o', '%i'],
+                               capture_output=True, text=True, timeout=30)
+            _RUNNING[1] = None if q.returncode else set(q.stdout.split())
+        except (subprocess.TimeoutExpired, OSError):  # also: no Slurm here
+            _RUNNING[1] = None
+        _RUNNING[0] = time.time()
+    return _RUNNING[1]
+
+
 def claim(out):
     """True if this process may compute `out`: it does not exist and nobody else holds its lock. A lock names the
     Slurm job, host and process: it is held while that process runs (same job: several workers share a job) or, for
@@ -683,7 +699,7 @@ def claim(out):
     if out.exists():
         return False
     out.parent.mkdir(parents=True, exist_ok=True)
-    mutex, lock = out.parent / 'claims.mutex', out.with_suffix('.lock')
+    mutex, lock, running = out.parent / 'claims.mutex', out.with_suffix('.lock'), running_jobs()
     job, host = os.environ.get('SLURM_JOB_ID', 'local'), socket.gethostname()
     while True:
         try:
@@ -704,10 +720,8 @@ def claim(out):
             if o_job == job:
                 if o_host == host and o_pid.isdigit() and int(o_pid) != os.getpid() and _alive(int(o_pid)):
                     return False
-            elif o_job not in ('', 'local'):
-                q = subprocess.run(['squeue', '-h', '-t', 'R', '-j', o_job], capture_output=True, text=True)
-                if q.stdout.strip() or q.returncode and 'Invalid job id' not in q.stderr:
-                    return False  # it runs, or Slurm cannot tell (then it is taken to run)
+            elif o_job not in ('', 'local') and (running is None or o_job in running):
+                return False  # it runs, or Slurm cannot tell (then it is taken to run)
         lock.write_text(f'{job}:{host}:{os.getpid()}')
         return True
     finally:
