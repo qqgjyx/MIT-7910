@@ -1187,10 +1187,10 @@ def at_tol(r, tol):
     return b, b or min(cands, key=lambda b: b['max_dev'], default=None)
 
 
-def _series(ax, x, y, ok, st):
+def _series(ax, x, y, ok, st, marker='o'):
     ax.plot(x, y, ls=st['ls'], lw=0.8, color=st['color'])
-    ax.plot(x[ok], y[ok], 'o', ms=3, color=st['color'])
-    ax.plot(x[~ok], y[~ok], 'o', ms=3, mfc='w', color=st['color'])
+    ax.plot(x[ok], y[ok], marker, ms=3, color=st['color'])
+    ax.plot(x[~ok], y[~ok], marker, ms=3, mfc='w', color=st['color'])
 
 
 def _lines(recs, f, name):
@@ -1205,7 +1205,7 @@ def _lines(recs, f, name):
     assert [r['level'] for r in recs['adamw-muon_d0']] == [r['level'] for r in recs['adamw-muon_d1']]
     (x0, y0, k0), (x1, y1, k1) = out.pop('adamw-muon_d0'), out.pop('adamw-muon_d1')
     for i, j in zip(*np.nonzero(np.isnan(y0) != np.isnan(y1))):
-        print(f'{name} ({chr(97 + i)}): no AdamW vs Muon mean at loss {(x0[j] + x1[j]) / 2:.2f} (only one order has it)')
+        print(f'{name}, value {i}: no AdamW vs Muon mean at loss {(x0[j] + x1[j]) / 2:.2f} (only one order has it)')
     return {'adamw-muon': ((x0 + x1) / 2, (y0 + y1) / 2, k0 & k1), **out}
 
 
@@ -1242,7 +1242,8 @@ def cmd_plot(args):
     the level. Next to it, from the same records as the tables:
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
     <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights (walks: only
-    those that reached b) and max |L - c|; open markers: max |L - c| > TAU."""
+    those that reached b; triangles on a right axis: % of the distance left where a walk stopped short) and
+    max |L - c|; open markers: max |L - c| > TAU."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -1280,24 +1281,31 @@ def cmd_plot(args):
     axes[1].set(title='distance / mean distance from init')
     _finish(fig, axes, recs, h, names, out.with_name(out.stem + '_line.pdf'))
 
-    def fig3(b):  # detour (walks: only if they reached b) and gap; within TAU?
+    def fig3(b):  # detour (walks: only if they reached b), gap, % of the distance left (walks short of b); within TAU?
         if b is None:
-            return (np.nan, np.nan), False
-        return (b['ratio'] - 1 if b.get('reached', True) else np.nan, b['max_dev']), b['max_dev'] <= TAU
+            return (np.nan, np.nan, np.nan), False
+        done = b.get('reached', True)
+        return (b['ratio'] - 1 if done else np.nan, b['max_dev'], np.nan if done else 100 * b['left']), \
+            b['max_dev'] <= TAU
 
     fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.4))
+    left = axes[1, 0].twinx()
     for row, key in enumerate(('n20', 'walk')):
         for k, (x, ys, ok) in _lines(recs, lambda r: fig3(r[key]), f'Fig. 3, {key}').items():
             for ax, y in zip(axes[row], ys):
                 _series(ax, x, y, ok, STYLE[k])
+            if key == 'walk':
+                _series(left, x, ys[2], ok, STYLE[k], '^')
+    left.set(ylim=(0, 100), ylabel='distance left to $\\theta_B$ (%)')
     for row, name in enumerate(('$N = 20$ path', 'level-set walk')):
         axes[row, 0].set(yscale='log', ylabel=name, title='length / distance $-$ 1 (weights)')
         axes[row, 1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
         axes[row, 1].axhline(TAU, color='k', lw=0.5, ls=':')
         lo, hi = axes[row, 1].get_ylim()
         axes[row, 1].set_ylim(min(lo, 1e-3), max(hi, 2 * TAU))  # tau inside; labelled powers of 10, as in Fig. 1
-    _finish(fig, axes.ravel(), recs, h + marks,
-            names + [f'within $\\tau$ = {TAU:g}', 'missed $\\tau$'], out.with_name(out.stem + '_robust.pdf'))
+    _finish(fig, axes.ravel(), recs, h + marks + [plt.Line2D([], [], color='k', marker='^', ms=3, ls='')],
+            names + [f'within $\\tau$ = {TAU:g}', 'missed $\\tau$', 'distance left (right axis)'],
+            out.with_name(out.stem + '_robust.pdf'))
 
 
 NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs Muon, order 1',
