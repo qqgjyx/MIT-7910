@@ -925,7 +925,7 @@ def task_list(A, args):
             g = d / 'band' / f'{level}_{pair}_n10.json'
             if g.exists() and g.with_suffix('.stage.pt').exists() and not json.loads(g.read_text())['ok']:
                 T.append((2, 'band01', f, d, level, pair, 10, None))
-    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six if d != main for pair in PAIRS]
+    T += [(3, 'band', f, d, level, pair, 20, None) for (f, d), level in six if d != main[1] for pair in PAIRS]
     T += [(3, 'band', *rr, l, 'adamw-muon_d0', args.n, seed) for l in sel if step[l] == 1440 for seed in (1, 2)]
     T += [(3, 'walk', f, d, level, pair, None, None) for (f, d), level in six for pair in PAIRS]
     for tier in (4, 5):
