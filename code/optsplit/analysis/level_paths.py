@@ -1144,8 +1144,9 @@ def _finish(fig, axes, recs, h, labels, out):
 
 
 def cmd_plot(args):
-    """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, and its held-out
-    max |L - c| (open markers: no path within TAU; then the smallest of the pair) against the level. Next to it, from the same records as the
+    """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, its held-out
+    max |L - c| (open markers: no path within TAU; then the smallest of the pair) and its length in weights against
+    the level. Next to it, from the same records as the
     tables, with solid lines and squares for AdamW vs Muon order 1:
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
     <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights and max |L - c|;
@@ -1156,18 +1157,19 @@ def cmd_plot(args):
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 14, 'axes.labelsize': 7,
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
-    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
     for pair, rs in recs.items():
         st, x = STYLE[pair], np.array([r['probe'] for r in rs])
         res = [at_tol(r, TAU) for r in rs]
         get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
         gap = np.array([np.nan if g is None else g['max_dev'] for _, g in res], dtype=float)
         ok = gap <= TAU
-        for ax, y in zip(axes, (get(lambda b: b['ratio'] - 1), gap)):
+        for ax, y in zip(axes, (get(lambda b: b['ratio'] - 1), gap, get(lambda b: sum(b['seg'])))):
             _series(ax, x, y, ok, st, st['ls'], 'o')
     axes[0].set(yscale='log', ylabel=f'$\\tau$ = {TAU:g}', title='length / distance $-$ 1 (weights)')
     axes[1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
     axes[1].axhline(TAU, color='k', lw=0.5, ls=':')
+    axes[2].set(title='path length (weights, $\\ell_2$)')
     names = [STYLE[k]['label'] for k in STYLE]
     marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
              plt.Line2D([], [], color='k', marker='o', ms=3, mfc='w', ls='')]
