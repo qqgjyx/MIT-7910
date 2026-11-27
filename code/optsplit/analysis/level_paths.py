@@ -1083,9 +1083,11 @@ def effort(res):
 
 
 def at_tol(r, tol):
-    """The N=10 band result of record r that counts at tol: at 0.02 the band itself; at 0.1 its continuation in
-    band_t0.1/ if there is one, else the band (valid at 0.02, or a miss without saved points to continue from)."""
-    return r['n10_t01'] if tol > 0.05 and r.get('n10_t01') else r['n10']
+    """The N=10 band result of record r that counts at tol: at 0.02 the band itself; at 0.1 the first of its
+    continuation in band_t0.1/ and the band that is within 0.1, else the one closer to the level."""
+    cands = [b for b in ((r.get('n10_t01'), r['n10']) if tol > 0.05 else (r['n10'],)) if b]
+    ok = [b for b in cands if b['max_dev'] <= tol]
+    return ok[0] if ok else min(cands, key=lambda b: b['max_dev'], default=None)
 
 
 def cmd_plot(args):
