@@ -41,6 +41,12 @@ X once: 17 small-side and 2 rectangular products (0.84 of Muon's FLOPs for the 1
 `log.two_track_check` lists steps at which a run logs the error of that update against the exact one
 (`two_track` records: per Muon matrix, cosine and relative error for K = 5, 8, 12 and LC5, LC6).
 
+Smoothed Muon (`optimizer: smuon`, hyperparameters `optim.smuon`: those of `optim.muon` plus `smooth: a`) is Muon whose
+step on each matrix is the running average of Muon's updates O_t: U_t = (1 - a) U_{t-1} + a O_t, W_t = W_{t-1} - lr
+U_t / (1 - (1 - a)^t) (a = 1 is Muon; `optim.muon.smooth` sets the same option, default off). U and t are kept in the
+optimizer state (`smooth_buffer`, `smooth_step`), so they are saved and restored with it. A fork into smuon from a
+parent that kept no smuon shadow starts from the parent's Muon state, and the average restarts (t = 0).
+
 `train.loss` is `ce` (default) or `mse`: the squared error between the outputs z (the logits, no softmax) and the
 one-hot target, summed over the classes and averaged over tokens (Cohen et al. 2021). It is the loss everywhere:
 training, the probe's `train_loss` and `val_loss`, `delta_loss`, every Hessian and gradient measurement

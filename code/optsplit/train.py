@@ -69,6 +69,7 @@ def main(argv):
         rates = LayerRates(cfg, opt, model, data)
     probe = Probe(cfg, data)
     T = cfg.train.max_steps
+    end = cfg.train.stop_step or T
 
     start = 0
     if (out / 'latest.pt').exists():
@@ -85,7 +86,9 @@ def main(argv):
         start = cfg.fork.step
         ck = torch.load(run_dir(cfg.fork.parent) / 'fork' / f'{start:07d}.pt', map_location=device)
         model.load_state_dict(ck['model'])
-        load_optimizer_state(opt, ck['optimizer'][cfg.optimizer])
+        states = ck['optimizer']
+        # a parent without smuon in shadow: smuon starts from Muon's state and its average of the steps restarts
+        load_optimizer_state(opt, states.get(cfg.optimizer) or states[{'smuon': 'muon'}[cfg.optimizer]])
         shadow.load(ck['optimizer'])
         print(f'forked from {cfg.fork.parent} at step {start}')
     if cfg.log.get('preds', True):
@@ -123,7 +126,7 @@ def main(argv):
     clip = cfg.train.grad_clip if cfg.train.grad_clip > 0 else math.inf
     last_save, t0 = time.time(), time.time()
 
-    for step in range(start, T + 1):
+    for step in range(start, end + 1):
         if step in eval_steps:
             preds, rec = probe.evaluate(model)
             if cfg.log.get('preds', True):
@@ -146,7 +149,7 @@ def main(argv):
             rec['lr'] = base_lr * lr_mult(step, cfg)
             if m.delta_loss:
                 loss_before = probe.train_loss(model)
-        if step == T:
+        if step == end:
             if measure:
                 log('measure', step, **rec)
             break

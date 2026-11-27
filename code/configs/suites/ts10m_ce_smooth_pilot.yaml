@@ -1,0 +1,24 @@
+# Calibration of smoothed Muon (optimizer smuon, DESIGN.md) with the cross-entropy loss, on data order 0: the smoothing
+# constant a (optim.smuon.smooth) at Muon's learning rate 0.01 (ts10m_main). Short runs: they stop at step 2002, past
+# training loss 1.81 (the level of the CE checkpoint's comparison; AdamW reaches it near step 1500, Muon near step 850),
+# on the 10,000-step schedule of the full runs. The checkpoints are the triples t, t+1, t+2 of ts10m_traj from 400 to
+# 2000, so the cosine of consecutive updates is read as for its AdamW and Muon runs
+# (python -m optsplit.analysis.update_cosine 'ts10m_ce_smooth_pilot/*' --level 1.81). a = 1 is Muon (a check). No
+# sharpness measurements; the stored outputs are thinned to 4 positions per probe sequence. ckpt/ and preds/ go to
+# scratch (slurm/scratch_links.sh) and are deleted once the cosines are extracted.
+suite: ts10m_ce_smooth_pilot
+base: ../base/tinystories_10m.yaml
+overrides:
+  train.loss: ce
+  train.stop_step: 2002
+  optimizer: smuon
+  optim.smuon.lr: 0.01
+  measure.hessian: false
+  measure.batch_sharpness_batches: 0
+  measure.delta_loss: false
+  probe.positions_per_seq: 4
+  log.ckpt_steps: {every: 0, geometric: 0, extra: [400, 401, 402, 500, 501, 502, 600, 601, 602, 800, 801, 802, 1000,
+    1001, 1002, 1250, 1251, 1252, 1500, 1501, 1502, 2000, 2001, 2002]}
+name: "smuon_a{optim.smuon.smooth}"
+runs:
+  - {optim.smuon.smooth: [1.0, 0.8, 0.7, 0.65, 0.6, 0.55, 0.5, 0.4]}

@@ -1,9 +1,10 @@
 """Equal-loss values of the Step-2 metrics (from rank_metrics.py's metrics.json) and the ratio of two optimizers' values,
 with its margin over data orders: [min A / max B, max A / min B]. Pure Python, so the table can be made anywhere.
 
-    python metric_ratios.py metrics.json A|B [training loss, default 1.81] > rows.tex   (rows of an appendix table)
+    python metric_ratios.py metrics.json A|B|A3|B3 [training loss, default 1.81] > rows.tex   (rows of a table)
 
-Table A: AdamW, Muon and their ratio; table B: AdamW, Muon, SGD and the ratios to SGD.
+Table A: AdamW, Muon and their ratio; table B: AdamW, Muon, SGD and the ratios to SGD. A3 and B3: the same with
+smoothed Muon (smuon) as a third optimizer, and its ratio to Muon (A3) or to SGD (B3).
 """
 import json
 import math
@@ -11,6 +12,9 @@ import sys
 
 OPTS = ('adamw', 'muon', 'sgd')
 PAIRS = (('adamw', 'muon'), ('adamw', 'sgd'), ('muon', 'sgd'))
+TABLES = {'A': (OPTS[:2], PAIRS[:1]), 'B': (OPTS, PAIRS[1:]),  # table: (optimizers, ratios)
+          'A3': (('adamw', 'muon', 'smuon'), (('adamw', 'muon'), ('smuon', 'muon'))),
+          'B3': (('adamw', 'muon', 'smuon', 'sgd'), (('adamw', 'sgd'), ('muon', 'sgd'), ('smuon', 'sgd')))}
 NAMES = {
     'l2': r'weight norm $\|\theta\|_2$', 'dist_init_rel': r'distance from init.\ $/\|\theta_0\|$',
     'linf_over_l2': r'largest entry $/\|\theta\|_2$', 'stable_rank': 'stable rank of $W$',
@@ -90,7 +94,7 @@ def row_exp(xs):
 
 def main():
     m = json.load(open(sys.argv[1]))
-    opts, pairs = (OPTS[:2], PAIRS[:1]) if sys.argv[2] == 'A' else (OPTS, PAIRS[1:])
+    opts, pairs = TABLES[sys.argv[2]]
     L, v = values(m, float(sys.argv[3]) if len(sys.argv) > 3 else 1.81)
     rat = {k: [ratio(v[k][a], v[k][b]) for a, b in pairs] for k in v}
     bold = []

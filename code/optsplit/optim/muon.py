@@ -5,6 +5,7 @@ overwrites `grad` in place (upstream does `grad.lerp_`), so a shadow optimizer o
 the same gradients sees them unchanged. Added, as ablations (DESIGN.md): `orthogonalize=False`, `sv_power=p` and
 `two_track_steps=K` and `lc_steps=K` (sv_power by matrix products instead of the SVD); and `fast_update=True`
 (optim.muon.fast_update: the same update with the matrices of one shape in one batch, see fast_muon_step).
+Added, as the optimizer `smuon` (DESIGN.md): `smooth=a`, the step is a running average of Muon's updates.
 """
 
 import torch
@@ -266,14 +267,16 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                 group["two_track_steps"] = group.get("two_track_steps", None)
                 group["lc_steps"] = group.get("lc_steps", None)
                 group["fast_update"] = group.get("fast_update", False)
+                group["smooth"] = group.get("smooth", None)
                 assert not group["two_track_steps"] or group["sv_power"] in TWO_TRACK, "two-track: no coefficients"
                 assert not group["lc_steps"] or (group["sv_power"], group["lc_steps"]) in LC or \
                     (group["lc_steps"] == 'gram' and group["sv_power"] in GRAM), "LC: no coefficients"
                 assert not group["fast_update"] or group["sv_power"] is None or group["two_track_steps"] or \
                     group["lc_steps"], "fast_update: not with the exact SVD"
+                assert not (group["fast_update"] and group["smooth"] is not None), "fast_update: not with smooth"
                 assert set(group.keys()) == set(["params", "lr", "momentum", "weight_decay", "use_muon",
                                                  "orthogonalize", "sv_power", "two_track_steps", "lc_steps",
-                                                 "fast_update"])
+                                                 "fast_update", "smooth"])
             else:
                 group["lr"] = group.get("lr", 3e-4)
                 group["betas"] = group.get("betas", (0.9, 0.95))
@@ -302,6 +305,14 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                     update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"],
                                          orthogonalize=group["orthogonalize"], sv_power=group["sv_power"],
                                          two_track_steps=group["two_track_steps"], lc_steps=group["lc_steps"])
+                    a = group["smooth"]
+                    if a is not None:  # U_t = (1 - a) U_{t-1} + a O_t, divided by 1 - (1 - a)^t; a = 1 is Muon
+                        if "smooth_buffer" not in state:  # also when started from a Muon state (a swap)
+                            state["smooth_buffer"] = torch.zeros_like(p)
+                            state["smooth_step"] = 0
+                        state["smooth_step"] += 1
+                        state["smooth_buffer"].lerp_(update.reshape(p.shape).to(p.dtype), a)
+                        update = state["smooth_buffer"] / (1 - (1 - a) ** state["smooth_step"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
                 if group["fast_update"]:
