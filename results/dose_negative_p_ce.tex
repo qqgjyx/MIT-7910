@@ -71,7 +71,7 @@ AdamW (rate 0.002) & 1438 & 32.9 & 7.95 & 10000 & 17.9 & -- & 1.3391 & -- \\
 
 \paragraph{Paths.} We compared each run with standard Muon on the same data order by the Jensen--Shannon divergence between their next-token predictions on held-out text. For $-0.3\le p\le0.25$, a run stays closer to Muon than AdamW does, at equal step and at equal training loss (at loss 1.81: 0.079 bits for $p=-0.3$, 0.122 for AdamW).
 
-\paragraph{A cheaper update (LC).} LC$k$ approximates the $p=-0.3$ update by a weighted sum of the first $k$ Newton--Schulz iterates (3 matrix products each; Muon uses 5), with weights fitted for $p=-0.3$. LC12 matches the exact update (mean final loss 1.3020 against 1.3027) at about 1.35 times Muon's time per step (\cref{tab:lc}). Yet no LC beats Muon at equal GPU time (\cref{fig:lc}c), and LC12 with its schedule shrunk to Muon's GPU time (7391 steps) ends at 1.3337, far behind Muon's 1.3086.
+\paragraph{A cheaper update (LC).} LC$k$ approximates the $p=-0.3$ update by a weighted sum of the first $k$ Newton--Schulz iterates (3 matrix products each; Muon uses 5), with weights fitted for $p=-0.3$. LC12 matches the exact update (mean final loss 1.3020 against 1.3027) at about 1.35 times Muon's time per step (\cref{tab:lc}). Yet no LC beats Muon at equal GPU time (\cref{fig:lc}, bottom row), and LC12 with its schedule shrunk to Muon's GPU time (7391 steps) ends at 1.3337, far behind Muon's 1.3086.
 
 \begin{table}[H]
 \centering
@@ -98,8 +98,8 @@ Muon (Newton--Schulz) & 15 & 117 & -- & 1.3049 & 1.3070 & 1.3138 & 1.3086 & \tex
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\linewidth]{ts10m/lc_val_ce.pdf}
-\caption{Validation loss at rate 0.01 (AdamW 0.002). (a, b) Against step: whole run (log axis in loss $-$ 1) and from step 5000; data order 0 thick, 1 and 2 thin. (c) Against GPU minutes, data order 0 (LC5m: each finished data order); grey line: AdamW's final loss, 1.3391.}
+\includegraphics[width=\linewidth]{ts10m/lc_loss_ce.pdf}
+\caption{Training loss against step (top), validation loss against step (middle) and against GPU minutes (bottom), over the whole run (left, log axis in loss $-$ 1) and the end of training (right). Data orders 0--2 (0 thick) against step, 0 against GPU minutes (LC5m: each finished order); grey line: AdamW's final loss, 1.3391.}
 \label{fig:lc}
 \end{figure}
 

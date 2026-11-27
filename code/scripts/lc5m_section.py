@@ -1,8 +1,8 @@
 """Fig. 2 and the last section (LC5m) of results/dose_negative_p_ce.tex, both overwritten:
 
-- results/ts10m/lc_val_ce.pdf: validation loss of LC5-LC12, LC12 at equal GPU time and Muon against the step (data
-  orders 0-2, as two_track.py), and against GPU minutes (step x time per step from the timing pilots, as gpu_time.py)
-  on data order 0 with AdamW and LC5m (every finished data order);
+- results/ts10m/lc_loss_ce.pdf: training and validation loss of LC5-LC12, LC12 at equal GPU time and Muon against the
+  step (data orders 0-2), and validation loss against GPU minutes (step x time per step from the timing pilots, as
+  gpu_time.py) on data order 0 with AdamW and LC5m (every finished data order); whole run and end of training;
 - results/lc5m_section.tex (which the document inputs): one row per data order with the final validation loss and the
   GPU minutes to AdamW's final loss of LC5m, Muon, LC5, the exact update and AdamW.
 
@@ -25,7 +25,7 @@ from optsplit.analysis.plots import panel_labels
 from optsplit.analysis.two_track import METHODS, SUITES, step_time
 
 RESULTS = Path(__file__).resolve().parents[2] / 'results'
-FIG = 'ts10m/lc_val_ce.pdf'
+FIG = 'ts10m/lc_loss_ce.pdf'
 ORDERS = range(5)
 SU = SUITES['ce']
 MUON = REFS['muon'][0]
@@ -46,43 +46,39 @@ def width(d):
     return dict(lw=1.0) if d == 0 else dict(lw=0.5, alpha=0.6)
 
 
-def figure(runs, sec, target, zoom=5000, minutes=(10, 27), ticks=(2, 1.75, 1.5, 1.4, 1.35, 1.3)):
-    """(a) whole run and (b) from step `zoom` against the step; (c) the GPU `minutes`, linear, capped at AdamW's loss
-    at their start."""
-    fig, ax = plt.subplot_mosaic([['a', 'b'], ['c', 'legend']], figsize=(7.1, 4.6), layout='constrained')
-    handles, lo = {}, np.inf
-    for name in STEPWISE:
-        for d, r in runs[name].items():
-            if d < 3:
-                steps, val = r.series('eval', 'val_loss')
-                line, = ax['a'].plot(steps, val, color=COLORS[name], **width(d))
-                ax['b'].plot(steps[steps >= zoom], val[steps >= zoom], color=COLORS[name], **width(d))
-                handles[name] = handles.get(name, line) if d else line
-    for name in STEPWISE + ['AdamW', 'LC5m']:
-        for d, r in runs[name].items():
-            if d == 0 or name == 'LC5m':
-                steps, val = r.series('eval', 'val_loss')
-                t = steps * sec[name] / 60
-                line, = ax['c'].plot(t, val, color=COLORS[name], **width(d))
-                handles.setdefault(name, line)
-                win = (t >= minutes[0]) & (t <= minutes[1])
-                lo = min(lo, val[win].min()) if win.any() else lo
-                if name == 'AdamW':
-                    hi = val[t >= minutes[0]].max()
-    log_axis(ax['a'], 1, ticks)
-    ax['a'].set(xlim=(0, None), ylim=(min(np.nanmin(line.get_ydata()) for line in ax['a'].lines) - 0.003, ticks[0]),
-                title='whole run')
-    ax['b'].set(xlim=(zoom, None), title=f'from step {zoom}')
-    ax['c'].axhline(target, color='0.55', lw=0.4)
-    ax['c'].set(xlim=minutes, ylim=(lo - 0.005, hi + 0.005), title=f'{minutes[0]:g} to {minutes[1]:g} GPU minutes',
-                xlabel='GPU minutes')
-    for k in 'abc':
-        ax[k].set_ylabel('validation loss')
-    for k in 'ab':
-        ax[k].set_xlabel('step')
-    ax['legend'].axis('off')
-    ax['legend'].legend(handles.values(), handles.keys(), loc='center', ncol=2, frameon=False)
-    panel_labels([ax[k] for k in 'abc'])
+def figure(runs, sec, target, end_step=7000, end_minutes=15, ticks=(4, 3, 2, 1.75, 1.5, 1.4, 1.3)):
+    """Rows: training and validation loss against the step (LC and Muon, data orders 0-2), validation loss against GPU
+    minutes (data order 0, with AdamW and every finished LC5m run). Left: whole run, on log(L - 1); right: from
+    `end_step` or `end_minutes` on, linear, fitted to the curves there."""
+    fig, axes = plt.subplots(3, 2, figsize=(7.1, 6.0), layout='constrained')
+    handles = {}
+    for (full, end), key, by_time in zip(axes, ('train_loss', 'val_loss', 'val_loss'), (False, False, True)):
+        start = end_minutes if by_time else end_step
+        lo, hi = np.inf, -np.inf
+        for name in STEPWISE + ['AdamW', 'LC5m'] if by_time else STEPWISE:
+            for d, r in runs[name].items():
+                if (d == 0 or name == 'LC5m') if by_time else d < 3:
+                    steps, v = r.series('eval', key)
+                    x = steps * sec[name] / 60 if by_time else steps
+                    line, = full.plot(x, v, color=COLORS[name], **width(d))
+                    end.plot(x[x >= start], v[x >= start], color=COLORS[name], **width(d))
+                    if d == 0 or name not in handles:
+                        handles[name] = line
+                    if (x >= start).any():
+                        lo, hi = min(lo, v[x >= start].min()), max(hi, v[x >= start].max())
+        if by_time:
+            for ax in (full, end):
+                ax.axhline(target, color='0.55', lw=0.4)
+        log_axis(full, 1, ticks)
+        full.set(xlim=(0, None), ylim=(min(np.nanmin(line.get_ydata()) for line in full.lines) - 0.003, ticks[0]))
+        end.set(xlim=(start, None), ylim=(lo - 0.002, hi + 0.002))
+        for ax in (full, end):
+            ax.set(xlabel='GPU minutes' if by_time else 'step',
+                   ylabel='training loss' if key == 'train_loss' else 'validation loss')
+    axes[0, 0].set_title('whole run')
+    axes[0, 1].set_title('end of training')
+    fig.legend(handles.values(), handles.keys(), loc='outside lower center', ncol=4, frameon=False)
+    panel_labels(axes.ravel())
     fig.savefig(RESULTS / FIG)
 
 
@@ -129,7 +125,7 @@ def main():
         return '--' if not x or np.isnan(np.mean(x)) else format(np.mean(x), fmt)
 
     lines += [r'\midrule', row('mean', [mean(loss[n], '.4f') for n in names] + [mean(mins[n], '.1f') for n in names])]
-    text = r' \Cref{fig:lc}c shows its validation loss against GPU time.' if done else ''
+    text = r' Its validation loss against GPU time is in the bottom row of \cref{fig:lc}.' if done else ''
     text += '' if timed else " Until its own timing job has run, its GPU time uses LC5's time per step."
     orders = ', '.join(f'd{d}' for d in done) or 'none yet'
 
