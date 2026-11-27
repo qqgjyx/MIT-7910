@@ -1151,11 +1151,13 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 def cmd_table(args):
     """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, prediction-space ratio, distance /
     distance from init), then at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%), prediction-space
-    ratio and best held-out max |L - c| (in parentheses: the path missed tau), and the string-method steps."""
+    ratio and best held-out max |L - c| (in parentheses: the path missed tau), and the string-method steps. Then a
+    second table: the N=20 band's and the level-set walk's length / distance - 1 (%) and max |L - c| at tau = 0.02."""
     recs = collect(args.out_dirs)
     f = lambda v, d=2, ok=True: '--' if v is None else (f'{v:.{d}f}' if ok else f'({v:.{d}f})')
     short = {'adamw-muon_d0': 'AdamW--Muon, 0', 'adamw-muon_d1': 'AdamW--Muon, 1', 'adamw_d0-d1': 'AdamW, 0--1',
              'muon_d0-d1': 'Muon, 0--1'}
+    rows, extra = [], []
     for level in sorted({r['level'] for rs in recs.values() for r in rs}, reverse=True):
         x = np.mean([r['probe'] for rs in recs.values() for r in rs if r['level'] == level])
         s = next((r['step'] for rs in recs.values() for r in rs if r['level'] == level and r['step']), None)
@@ -1170,9 +1172,15 @@ def cmd_table(args):
                               f(b and effort(b)[1], 3)]
                 head = f'{x:.2f} ({round(s / 100)}\\%)' if first and s else ''
                 first = False
-                print(' & '.join([head, short[pair], f(p['rise']), f(p['pred_ratio']), f(p['rel_distance']['all']),
-                                  *cells, '--' if r['n10'] is None else str(effort(r['n10'])[0])]) + r' \\')
-        print(r'\midrule')
+                rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['pred_ratio']), f(p['rel_distance']['all']),
+                                        *cells, '--' if r['n10'] is None else str(effort(r['n10'])[0])]) + r' \\')
+                cells = []
+                for b in (r['n20'], r['walk']):
+                    cells += [f(b and 100 * (b['ratio'] - 1), 2, b is None or b['ok']), f(b and b['max_dev'], 3)]
+                extra.append(' & '.join([head, short[pair], *cells]) + r' \\')
+        rows.append(r'\midrule')
+        extra.append(r'\midrule')
+    print('\n'.join(rows + ['% N=20 bands and level-set walks'] + extra))
 
 
 def cmd_profile(args):
