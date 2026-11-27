@@ -10,8 +10,7 @@ mean over the data orders its method has finished (n in the legend):
   GPU minutes to AdamW's final loss of Gram LC, LC5m (if any of its runs started), Muon, LC5, the exact update and AdamW,
   and their means over the finished orders.
 
-The new methods' runs are found by name in any suite matching NEW. Their time per step is Muon's (ts10m_ce_tt_pilot)
-times their ratio to Muon in a joint timing job on an L40S; until there is one, their GPU time is "pending". Run by
+The new methods' runs are found by name in any suite matching NEW. Times per step: step_times (see CONSOLIDATED). Run by
 scripts/gram_section.sh, which first copies the logs from ORCD (--files lists them):
 
     python scripts/gram_section.py
@@ -42,8 +41,16 @@ RUNS = {label: (run, pilot.format(**SU)) for label, run, pilot, *_ in METHODS if
 STEPWISE = list(RUNS)  # drawn against the step: LC and Muon
 RUNS |= {'AdamW': ('ts10m_main/adamw_d{d}', PILOTS['adamw']), 'exact': ('{svp}/muon_p-0.3_lr{lr}_d{d}', PILOTS['svd'])}
 # new methods: run glob (data order from the config), timing pilot, Muon's pilot in the same job
-NEW = {'Gram LC': ('ts10m_ce_gram*/*gram_d[0-4]', 'ts10m_ce_gram_pilot/gram_fast', 'ts10m_ce_gram_pilot/muon_fast'),
+NEW = {'Gram LC': ('ts10m_ce_gram*/*gram_d[0-4]', 'ts10m_ce_gram_pilot_l40s/gram_fast',
+                   'ts10m_ce_gram_pilot_l40s/muon_fast'),
        'LC5m': ('ts10m_ce_lcm*/*lc5m_d[0-4]', 'ts10m_ce_lcm_pilot/lc5m', 'ts10m_ce_lcm_pilot/muon')}
+# Times per step, all in step_times. CONSOLIDATED (suite name to come): one fast-path L40S timing job of every method,
+# runs <CONSOLIDATED>/<TIMED[method]>_d0 and _d1. Until then: the old-code pilots of RUNS, and for the new methods Muon's
+# old-code time times their ratio to Muon in a joint fast-path L40S job (NEW).
+CONSOLIDATED = None
+TIMED = {MUON: 'muon_fast', 'LC5': 'lc5_fast', 'LC6': 'lc6_fast', 'LC8': 'lc8_fast', 'LC12': 'lc12_fast',
+         'LC12, equal GPU time': 'lc12_fast', 'exact': 'svd_p-0.3', 'AdamW': 'adamw', 'Gram LC': 'gram_fast',
+         'LC5m': 'lc5m_fast'}
 SHORT = {'Gram LC': 'Gram', 'LC5m': 'LC5m', MUON: 'Muon', 'LC5': 'LC5', 'exact': 'exact', 'AdamW': 'AdamW'}
 
 
@@ -53,6 +60,17 @@ def final(r):
 
 def pilot_time(pilot):
     return float(np.mean([step_time(Run(f'{pilot}_d{d}')) for d in (0, 1)]))
+
+
+def step_times():
+    """Seconds per training step of every method (nan: no L40S timing yet)."""
+    if CONSOLIDATED:
+        return {name: pilot_time(f'{CONSOLIDATED}/{t}') for name, t in TIMED.items()}
+    sec = {name: pilot_time(p) for name, (_, p) in RUNS.items()}
+    for name, (_, pilot, muon) in NEW.items():
+        m = pilot_time(muon)  # an L40S job: Muon within 20% of its L40S time (ts10m_ce_gram_pilot: 47 ms, not L40S)
+        sec[name] = sec[MUON] * pilot_time(pilot) / m if abs(m / sec[MUON] - 1) < 0.2 else np.nan
+    return sec
 
 
 def started(pattern):
@@ -151,19 +169,16 @@ def main():
     if args.files:
         ids = [r.format(d=d, **SU) for r, _ in RUNS.values() for d in ORDERS] + [g for g, _, _ in NEW.values()]
         ids.append('ts10m_ce_svp/muon_p*_lr0.01_d[0-4]')
-        ids += [f'{p}_d{d}' for p in {p for _, p in RUNS.values()} | {p for _, *ps in NEW.values() for p in ps}
-                for d in (0, 1)]
+        pilots = {p for _, p in RUNS.values()} | {p for _, *ps in NEW.values() for p in ps}
+        pilots |= {f'{CONSOLIDATED}/{t}' for t in TIMED.values()} if CONSOLIDATED else set()
+        ids += [f'{p}_d{d}' for p in pilots for d in (0, 1)]
         print(' '.join(f'{i}/{f}' for i in ids for f in ('config.yaml', 'metrics.jsonl', 'done')))
         return
 
     runs = {name: {d: r for d in ORDERS if (r := Run(p.format(d=d, **SU))).done} for name, (p, _) in RUNS.items()}
-    sec = {name: pilot_time(p) for name, (_, p) in RUNS.items()}
-    for name, (pattern, pilot, muon) in NEW.items():
+    for name, (pattern, _, _) in NEW.items():
         runs[name] = started(pattern)
-        # an L40S job: Muon there within 20% of its L40S time (ts10m_ce_gram_pilot ran elsewhere: muon_fast 47 ms)
-        timed = (all(Run(f'{p}_d{d}').done for p in (pilot, muon) for d in (0, 1))
-                 and abs(pilot_time(muon) / sec[MUON] - 1) < 0.2)
-        sec[name] = sec[MUON] * pilot_time(pilot) / pilot_time(muon) if timed else np.nan
+    sec = step_times()
     target = final(runs['AdamW'][0])
     figure_p(runs)
     figure(runs, sec, target)
@@ -193,8 +208,9 @@ def main():
     lines = [row(f'd{d}', [cells(n, d) for n in names]) for d in ORDERS]
     lines += [r'\midrule', row('mean', [mean_cells(n) for n in names]), row('$n$', [(count[n],) * 2 for n in names])]
     k = len(names)
-    text = (r" Its time per step is Muon's times the ratio of the two in a joint timing job on an L40S."
-            if not np.isnan(sec['Gram LC']) else ' Its GPU time is pending a timing job on an L40S.')
+    ratio = sec['Gram LC'] / sec[MUON]
+    text = ('' if CONSOLIDATED else ' Its GPU time is pending a timing job on an L40S.' if np.isnan(ratio) else
+            f" Its time per step is Muon's times {ratio:.3f}, their ratio in one L40S timing job with newer, faster code.")
     text += r' \Cref{fig:lc} shows its mean curves.' if any(r.done for r in runs['Gram LC'].values()) else ''
     if runs['LC5m']:
         text += (r" LC5m, an earlier variant (LC5 with every singular value of its update between Muon's and "
