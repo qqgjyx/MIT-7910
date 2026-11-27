@@ -4,7 +4,7 @@ mean over the data orders its method has finished (n in the legend):
 - results/ts10m/dose_loss_ce.pdf: training and validation loss of the p sweep at rate 0.01 (ts10m_ce_svp), Muon and
   AdamW against the step, as dose.curves_zoom;
 - results/ts10m/lc_loss_ce.pdf: training and validation loss against the step, and validation loss against GPU minutes
-  (step x time per step, as gpu_time.py), of LC5-LC12, LC12 at equal GPU time, Muon, AdamW (GPU minutes only) and the
+  (step x time per step, as gpu_time.py), of LC5-LC12, LC12 on 7,391 steps, Muon, AdamW (GPU minutes only) and the
   new methods (NEW; against GPU minutes once timed); whole run and end of training;
 - results/gram_section.tex (which the document inputs): one row per data order with the final validation loss and the
   GPU minutes to AdamW's final loss of Gram LC, LC5m (if any of its runs started), Muon, LC5, the exact update and AdamW,
@@ -34,10 +34,12 @@ ORDERS = range(5)
 SU = SUITES['ce']
 MUON = REFS['muon'][0]
 # Solid lines, one colour per method (checked with a colour-blindness validator)
-COLORS = {'LC5': '#6a4ce2', 'LC6': '#00b894', 'LC8': '#e377c2', 'LC12': '#7a4a1e', 'LC12, equal GPU time': '#008a17',
+COLORS = {'LC5': '#6a4ce2', 'LC6': '#00b894', 'LC8': '#e377c2', 'LC12': '#7a4a1e', 'LC12, 7,391 steps': '#008a17',
           MUON: REFS['muon'][1]['color'], 'AdamW': REFS['adamw'][1]['color'], 'Gram LC': '#ec4647', 'LC5m': '#f2a600'}
 # label: (run id with {d}, timing pilot)
-RUNS = {label: (run, pilot.format(**SU)) for label, run, pilot, *_ in METHODS if label in COLORS}
+RENAME = {'LC12, equal GPU time': 'LC12, 7,391 steps'}  # METHODS' name; that run uses 90% of Muon's GPU time
+RUNS = {RENAME.get(label, label): (run, pilot.format(**SU)) for label, run, pilot, *_ in METHODS
+        if RENAME.get(label, label) in COLORS}
 STEPWISE = list(RUNS)  # drawn against the step: LC and Muon
 RUNS |= {'AdamW': ('ts10m_main/adamw_d{d}', PILOTS['adamw']), 'exact': ('{svp}/muon_p-0.3_lr{lr}_d{d}', PILOTS['svd'])}
 # new methods: run glob (data order from the config), timing pilot, Muon's pilot in the same job
@@ -49,7 +51,7 @@ NEW = {'Gram LC': ('ts10m_ce_gram*/*gram_d[0-4]', 'ts10m_ce_gram_pilot_l40s/gram
 # for the new methods Muon's old-code time times their ratio to Muon in a joint fast-path L40S job (NEW).
 CONSOLIDATED = 'ts10m_ce_timing_fast'
 TIMED = {MUON: 'muon_fast', 'LC5': 'lc5_fast', 'LC6': 'lc6_fast', 'LC8': 'lc8_fast', 'LC12': 'lc12_fast',
-         'LC12, equal GPU time': 'lc12_fast', 'AdamW': 'adamw', 'Gram LC': 'gram_fast'}
+         'LC12, 7,391 steps': 'lc12_fast', 'AdamW': 'adamw', 'Gram LC': 'gram_fast'}
 SHORT = {'Gram LC': 'Gram', 'LC5m': 'LC5m', MUON: 'Muon', 'LC5': 'LC5', 'exact': 'exact', 'AdamW': 'AdamW'}
 
 
