@@ -1138,8 +1138,7 @@ def cmd_work(args):
             time.sleep(60)
 
 
-STYLE = {'adamw-muon_d0': dict(color='C0', ls='-', label='AdamW vs Muon, order 0'),
-         'adamw-muon_d1': dict(color='C0', ls='--', label='AdamW vs Muon, order 1'),
+STYLE = {'adamw-muon': dict(color='C0', ls='-', label='AdamW vs Muon (mean of orders 0, 1)'),
          'adamw_d0-d1': dict(color='0.25', ls='-', label='AdamW, orders 0 vs 1'),
          'muon_d0-d1': dict(color='0.6', ls='-', label='Muon, orders 0 vs 1')}
 
@@ -1188,10 +1187,26 @@ def at_tol(r, tol):
     return b, b or min(cands, key=lambda b: b['max_dev'], default=None)
 
 
-def _series(ax, x, y, ok, st, ls, marker):
-    ax.plot(x, y, ls=ls, lw=0.8, color=st['color'])
-    ax.plot(x[ok], y[ok], marker, ms=3, color=st['color'])
-    ax.plot(x[~ok], y[~ok], marker, ms=3, mfc='w', color=st['color'])
+def _series(ax, x, y, ok, st):
+    ax.plot(x, y, ls=st['ls'], lw=0.8, color=st['color'])
+    ax.plot(x[ok], y[ok], 'o', ms=3, color=st['color'])
+    ax.plot(x[~ok], y[~ok], 'o', ms=3, mfc='w', color=st['color'])
+
+
+def _lines(recs, f, name):
+    """{series of STYLE: (x, y per panel, ok)} against the level, from f(record) = (value per panel, ok); AdamW vs Muon
+    is the mean of its two data orders, at the levels where both have a value (the others are printed), ok where both
+    are."""
+    out = {}
+    for pair, rs in recs.items():
+        v = [f(r) for r in rs]
+        out[pair] = (np.array([r['probe'] for r in rs]), np.array([y for y, _ in v], dtype=float).T,
+                     np.array([k for _, k in v]))
+    assert [r['level'] for r in recs['adamw-muon_d0']] == [r['level'] for r in recs['adamw-muon_d1']]
+    (x0, y0, k0), (x1, y1, k1) = out.pop('adamw-muon_d0'), out.pop('adamw-muon_d1')
+    for i, j in zip(*np.nonzero(np.isnan(y0) != np.isnan(y1))):
+        print(f'{name} ({chr(97 + i)}): no AdamW vs Muon mean at loss {(x0[j] + x1[j]) / 2:.2f} (only one order has it)')
+    return {'adamw-muon': ((x0 + x1) / 2, (y0 + y1) / 2, k0 & k1), **out}
 
 
 def _finish(fig, axes, recs, h, labels, out):
@@ -1224,8 +1239,7 @@ def _finish(fig, axes, recs, h, labels, out):
 def cmd_plot(args):
     """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, its held-out
     max |L - c| (open markers: no path within TAU; then the smallest of the pair) and its length in weights against
-    the level. Next to it, from the same records as the
-    tables, with solid lines and squares for AdamW vs Muon order 1:
+    the level. Next to it, from the same records as the tables:
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
     <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights (walks: only
     those that reached b) and max |L - c|; open markers: max |L - c| > TAU."""
@@ -1235,15 +1249,16 @@ def cmd_plot(args):
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 14, 'axes.labelsize': 7,
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
+
+    def fig1(r):  # the reported path's detour, gap (no valid path: the smallest gap) and length; valid?
+        b, g = at_tol(r, TAU)
+        gap = np.nan if g is None else g['max_dev']
+        return (np.nan, gap, np.nan) if b is None else (b['ratio'] - 1, gap, sum(b['seg'])), gap <= TAU
+
     fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
-    for pair, rs in recs.items():
-        st, x = STYLE[pair], np.array([r['probe'] for r in rs])
-        res = [at_tol(r, TAU) for r in rs]
-        get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
-        gap = np.array([np.nan if g is None else g['max_dev'] for _, g in res], dtype=float)
-        ok = gap <= TAU
-        for ax, y in zip(axes, (get(lambda b: b['ratio'] - 1), gap, get(lambda b: sum(b['seg'])))):
-            _series(ax, x, y, ok, st, st['ls'], 'o')
+    for k, (x, ys, ok) in _lines(recs, fig1, 'Fig. 1').items():
+        for ax, y in zip(axes, ys):
+            _series(ax, x, y, ok, STYLE[k])
     axes[0].set(yscale='log', ylabel=f'$\\tau$ = {TAU:g}', title='length / distance $-$ 1 (weights)')
     axes[1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
     axes[1].axhline(TAU, color='k', lw=0.5, ls=':')
@@ -1255,26 +1270,26 @@ def cmd_plot(args):
     _finish(fig, axes.ravel(), recs, h + marks, names + ['within $\\tau$', 'missed $\\tau$'], args.out)
 
     out = Path(args.out)
-    mk = lambda k: 's' if k == 'adamw-muon_d1' else 'o'
-    h = [plt.Line2D([], [], color=STYLE[k]['color'], marker=mk(k), ms=3, lw=0.9) for k in STYLE]
+    h = [plt.Line2D([], [], color=STYLE[k]['color'], marker='o', ms=3, lw=0.9) for k in STYLE]
     fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
-    for pair, rs in recs.items():
-        x, ok = np.array([r['probe'] for r in rs]), np.ones(len(rs), bool)
-        for ax, f in zip(axes, (lambda p: p['rise'], lambda p: p['rel_distance']['all'])):
-            _series(ax, x, np.array([f(r['prof']) for r in rs]), ok, STYLE[pair], '-', mk(pair))
+    for k, (x, ys, ok) in _lines(recs, lambda r: ((r['prof']['rise'], r['prof']['rel_distance']['all']), True),
+                                 'Fig. 2').items():
+        for ax, y in zip(axes, ys):
+            _series(ax, x, y, ok, STYLE[k])
     axes[0].set(title='rise: max $L - c$ (nats)')
     axes[1].set(title='distance / mean distance from init')
     _finish(fig, axes, recs, h, names, out.with_name(out.stem + '_line.pdf'))
 
+    def fig3(b):  # detour (walks: only if they reached b) and gap; within TAU?
+        if b is None:
+            return (np.nan, np.nan), False
+        return (b['ratio'] - 1 if b.get('reached', True) else np.nan, b['max_dev']), b['max_dev'] <= TAU
+
     fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.4))
-    for pair, rs in recs.items():
-        x = np.array([r['probe'] for r in rs])
-        for row, key in enumerate(('n20', 'walk')):
-            get = lambda f: np.array([np.nan if r[key] is None else f(r[key]) for r in rs], dtype=float)
-            ok = np.array([r[key] is not None and r[key]['max_dev'] <= TAU for r in rs])
-            detour = get(lambda b: b['ratio'] - 1 if b.get('reached', True) else np.nan)  # walks: only if they reached b
-            for ax, y in zip(axes[row], (detour, get(lambda b: b['max_dev']))):
-                _series(ax, x, y, ok, STYLE[pair], '-', mk(pair))
+    for row, key in enumerate(('n20', 'walk')):
+        for k, (x, ys, ok) in _lines(recs, lambda r: fig3(r[key]), f'Fig. 3, {key}').items():
+            for ax, y in zip(axes[row], ys):
+                _series(ax, x, y, ok, STYLE[k])
     for row, name in enumerate(('$N = 20$ path', 'level-set walk')):
         axes[row, 0].set(yscale='log', ylabel=name, title='length / distance $-$ 1 (weights)')
         axes[row, 1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')

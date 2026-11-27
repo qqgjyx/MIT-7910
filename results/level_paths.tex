@@ -44,7 +44,8 @@ measure how far the optimizer wandered inside the level set, not the landscape.
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths.pdf}
 \caption{Constant-loss paths ($N=10$ points) against the loss level; the labels on top give the level as a
-fraction of AdamW's training. Blue: AdamW vs Muon, same data order. Grey: the floor, two data orders of one
+fraction of AdamW's training. Blue: AdamW vs Muon, same data order, averaged over data orders 0 and 1
+(filled markers only where both orders have a valid path). Grey: the floor, two data orders of one
 optimizer. Valid paths stay within $\tau = 0.1$ nats of the level. (a) Path length in weights over the
 straight-line distance, minus 1 (log scale), for the shortest valid path. (b) Gap: the largest held-out deviation of
 the loss from its target along the same path; open markers: no valid path, so the smallest gap of the pair's runs;
@@ -55,7 +56,7 @@ dotted: $\tau$. (c) Length of the path in (a), in the units of $\|\theta_A - \th
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths_line.pdf}
 \caption{The straight line between the endpoints against the loss level: (a) rise, the largest loss excess in nats;
-(b) distance over the mean distance travelled from initialization. Squares: AdamW vs Muon, order 1.}
+(b) distance over the mean distance travelled from initialization.}
 \label{fig:line}
 \end{figure}
 
@@ -107,7 +108,7 @@ predictor--corrector continuation after Huang et al.\ (arXiv 2609.38081).
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths_robust.pdf}
 \caption{Robustness checks at $\tau = 0.1$: (a, b) 20-point constant-loss paths and (c, d) level-set walks (\cref{tab:robust}): detour
-(only walks that reached $\theta_B$) and gap. Open markers: the gap exceeds $\tau$; squares: AdamW vs Muon, order 1.}
+(only walks that reached $\theta_B$) and gap. Open markers: the gap exceeds $\tau$ (blue: in either data order).}
 \label{fig:robust}
 \end{figure}
 
