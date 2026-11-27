@@ -27,29 +27,28 @@
 
 \textbf{Answer.} At every loss level from 3\% to 100\% of AdamW's training, AdamW and Muon (same initialization,
 same data order) are farther apart than two runs of one optimizer that differ only in data order. We call the latter
-pair the \emph{floor}: it shows how far apart runs land by chance. Up to 75\% of training, AdamW and Muon are still
-joined by a path whose loss stays within 0.1 nats of the level. At 100\%, only the floor's paths stay within 0.1 nats
-(AdamW--Muon: 0.12 nats). AdamW--Muon values are means over the pair's two data orders, as in the figures.
+pair the \emph{floor}: it shows how far apart runs land by chance. From 3\% to 75\% (no paths were run at 100\%), AdamW and
+Muon are joined by a constant-loss path; all paths and level-set walks stay within 0.05 nats of the level. AdamW--Muon
+values are means over the pair's two data orders, as in the figures.
 \begin{itemize}\setlength{\itemsep}{0pt}
 \item \textbf{Farther apart.} Their distance, divided by the mean distance each model travelled from the
 initialization, is 1.13--1.39 against 0.67--1.24 for the floor. Along the straight line between them the loss rises
 0.4--3.8 nats above the level, against 0--1.6 for the floor (\cref{fig:line}).
 \item \textbf{Longer constant-loss paths.} The AdamW--Muon path is longer than the paths of both floors (AdamW and
-Muon) at 3--50\% with 10 points (\cref{fig:paths}) and at 3--14\% and 50--75\% with 20 (\cref{fig:robust}). With 20
-points, one of the two orders alone is not longer at 3\%, 14\%, 50\% and 75\%; each order on its own is longer with
-both 10 and 20 points only at 4--7\%.
+Muon) at 3--14\% and 50--75\% (\cref{fig:paths}), though one of the two orders alone is not at 3\%, 14\%, 50\% and
+75\%. Each order on its own is longer only at 4--7\%.
+\item \textbf{Longer level-set walks up to 14\%.} There, all walks reach $\theta_B$ and AdamW--Muon's detours exceed
+both floors' (\cref{fig:walks}); later, most walks stop short of $\theta_B$.
 \end{itemize}
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths.pdf}
-\caption{Constant-loss paths ($N=10$ points) against the loss level; the labels on top give the level as a
-fraction of AdamW's training. Blue: AdamW vs Muon, same data order, averaged over data orders 0 and 1
-(filled markers only where both orders have a valid path). Grey: the floor, two data orders of one
-optimizer. Valid paths stay within $\tau = 0.1$ nats of the level. (a) Path length in weights over the
-straight-line distance, minus 1 (log scale), for the shortest valid path. (b) Gap: the largest held-out deviation of
-the loss from its target along the same path; open markers: no valid path, so the smallest gap of the pair's runs;
-dotted: $\tau$. (c) Length of the path in (a), in the units of $\|\theta_A - \theta_B\|_2$.}
+\caption{Constant-loss paths ($N=20$ points) against the loss level; the labels on top give the level as a
+fraction of AdamW's training (no paths were run at 100\%). Blue: AdamW vs Muon, same data order, averaged over data
+orders 0 and 1. Grey: the floor, two data orders of one optimizer. (a) Path length in weights over the straight-line
+distance, minus 1 (log scale). (b) Gap: the largest held-out deviation of the loss from its target along the path;
+dotted: $\tau = 0.05$, which every path meets. (c) Path length, in the units of $\|\theta_A - \theta_B\|_2$.}
 \label{fig:paths}
 \end{figure}
 
@@ -67,16 +66,15 @@ losses of AdamW (order 0) at steps 272, 397, 680, 1440, 3300, 5000, 7500 and 100
 contributes the checkpoint whose training loss is closest to the level. The four runs (2 optimizers $\times$ 2 data
 orders) were rerun to save checkpoints near each level; the 100\% level uses the original runs.
 
-\textbf{Method.} $N$ points between $\theta_A$ and $\theta_B$, started on the straight line, are moved until each
+\textbf{Method.} $N = 20$ points between $\theta_A$ and $\theta_B$, started on the straight line, are moved until each
 point $i$ has its target loss $c_i$ (interpolated between the endpoint losses) while the path is kept short. Every pair gets the same
 budget: a stochastic string method (up to 6000 steps; each step does Adam on $(L_i - c_i)^2$ and pulls neighbouring
 points together), Levenberg--Marquardt steps, and curve shortening within the level set. If the points are still off
 the level, one 2500-step continuation of the string method without the pull follows (the pull drags points off the
-level where the path bends). Every step uses fresh training sequences. A path is \emph{valid} if the loss on 512 held-out
-sequences stays within $\tau = 0.1$ nats of the target at 9 points per segment. The optimization aims to stay within 0.02 nats,
-and the first check uses 0.02: a failing segment gets a midpoint and the optimization resumes (at most 4 rounds, so
-$N$ counts the starting points). A path that missed 0.02 is continued from its points before the midpoints, with the
-same optimization but checked against 0.1. When both runs give a valid path, we report the shorter one. \emph{Detour:} path
+level where the path bends). Every step uses fresh training sequences. The optimization aims to stay within 0.02 nats. Then the loss on 512
+held-out sequences is checked at 9 points per segment: a segment off by more than 0.02 nats gets a midpoint and the
+optimization resumes (at most 4 rounds, so a path can end with more than $N$ points). A path is \emph{valid} if it
+stays within $\tau = 0.05$ nats of its target; all are. \emph{Detour:} path
 length$/\|\theta_A - \theta_B\| - 1$. \emph{Level-set walk:} from $\theta_A$, each step heads towards $\theta_B$ with
 its component along the loss gradient removed, then is corrected back to within 0.01 nats of the level on fresh
 sequences.
@@ -86,23 +84,18 @@ bound, but we cannot verify that we found it.
 
 \textbf{Prior work.} Zhang et al.\ (2026, arXiv 2605.09991) connect independently initialized, fully trained AdamW
 and Muon GPT-2 models by low-barrier curves; they report barriers, not path lengths, and have no shared
-initialization, no mid-training levels and no data-order floor. The level-set walk (\cref{fig:robust}) is a
+initialization, no mid-training levels and no data-order floor. The level-set walk (\cref{fig:walks}) is a
 predictor--corrector continuation after Huang et al.\ (arXiv 2609.38081).
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths_robust.pdf}
-\caption{Robustness checks at $\tau = 0.1$: (a, b) 20-point constant-loss paths (none at 100\%) and (c, d) level-set
-walks: detour (only walks that reached $\theta_B$) and gap; triangles (right axis): the distance to $\theta_B$ left
-where a walk stopped short. Open markers: the gap exceeds $\tau$ (blue: in either data order).}
-\label{fig:robust}
+\caption{Level-set walks against the loss level: (a) detour, only for walks that reached $\theta_B$; triangles (right
+axis): the distance to $\theta_B$ left where a walk stopped short. (b) Gap; dotted: $\tau = 0.05$.}
+\label{fig:walks}
 \end{figure}
 
-Lengths in weights depend on the start: at 14\% (AdamW--Muon, order 0), starting from the straight line with its
-middle pushed 10\% of the distance in a random direction (two seeds) gave detours of 1.2\% and 1.3\% instead of
-0.7\%.
-
-The level-set walks stay within 0.011 nats of the level, well within 0.1. Up to 14\%, all of them reach
+The level-set walks stay within 0.011 nats of the level, well within $\tau = 0.05$. Up to 14\%, all of them reach
 $\theta_B$, and AdamW--Muon's detours exceed both floors' at every level (0.16--13\% against 0--1.4\%). At 33\% and
 50\%, only the AdamW floor reaches $\theta_B$ (detours 10\% and 38\%); later, no walk does. The others stop with
 58--95\% of the distance left, once even steps of 0.05\% of the distance can no longer be corrected back to within 0.01 nats.

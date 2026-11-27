@@ -36,7 +36,7 @@ from optsplit.analysis.io import Run, load_runs
 from optsplit.loss import log_probs, mean_loss
 from optsplit.models import build_model, layer
 
-TAU = 0.1  # the reported tolerance of the paths (nats); the bands optimize and first check against 0.02
+TAU = 0.05  # the reported tolerance of the paths (nats); the bands optimize and first check against 0.02
 PATH_SEED, HELDOUT_SEED = 101, 102  # fixed training sequences (the probe uses seed 0)
 STARTED, RESTART = time.time(), None  # RESTART: a worker's control file (see restart_if_asked)
 
@@ -1237,13 +1237,11 @@ def _finish(fig, axes, recs, h, labels, out):
 
 
 def cmd_plot(args):
-    """Fig. 1 (--out): the length ratio in weights of the shortest N=10 path within TAU, its held-out
-    max |L - c| (open markers: no path within TAU; then the smallest of the pair) and its length in weights against
-    the level. Next to it, from the same records as the tables:
+    """Against the level, with open markers where max |L - c| > TAU:
+    Fig. 1 (--out): the N=20 paths' length ratio in weights, held-out max |L - c| and length in weights;
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
-    <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights (walks: only
-    those that reached b; triangles on a right axis: % of the distance left where a walk stopped short) and
-    max |L - c|; open markers: max |L - c| > TAU."""
+    <out>_robust.pdf (Fig. 3): the level-set walks' length ratio in weights (only those that reached b; triangles on a
+    right axis: % of the distance left where a walk stopped short) and max |L - c|."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -1251,18 +1249,24 @@ def cmd_plot(args):
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
 
-    def fig1(r):  # the reported path's detour, gap (no valid path: the smallest gap) and length; valid?
-        b, g = at_tol(r, TAU)
-        gap = np.nan if g is None else g['max_dev']
-        return (np.nan, gap, np.nan) if b is None else (b['ratio'] - 1, gap, sum(b['seg'])), gap <= TAU
+    def gap_axis(ax):  # log scale, the dotted TAU inside and labelled powers of 10, as in Fig. 1
+        ax.set(yscale='log', title='max $|L - c|$ (held-out, nats)')
+        ax.axhline(TAU, color='k', lw=0.5, ls=':')
+        lo, hi = ax.get_ylim()
+        ax.set_ylim(min(lo, 1e-3), max(hi, 2 * TAU))
+
+    def fig1(r):  # the N=20 path's detour, gap and length; within TAU?
+        b = r['n20']
+        if b is None:
+            return (np.nan, np.nan, np.nan), False
+        return (b['ratio'] - 1, b['max_dev'], sum(b['seg'])), b['max_dev'] <= TAU
 
     fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
     for k, (x, ys, ok) in _lines(recs, fig1, 'Fig. 1').items():
         for ax, y in zip(axes, ys):
             _series(ax, x, y, ok, STYLE[k])
     axes[0].set(yscale='log', ylabel=f'$\\tau$ = {TAU:g}', title='length / distance $-$ 1 (weights)')
-    axes[1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
-    axes[1].axhline(TAU, color='k', lw=0.5, ls=':')
+    gap_axis(axes[1])
     axes[2].set(title='path length (weights, $\\ell_2$)')
     names = [STYLE[k]['label'] for k in STYLE]
     marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
@@ -1281,29 +1285,24 @@ def cmd_plot(args):
     axes[1].set(title='distance / mean distance from init')
     _finish(fig, axes, recs, h, names, out.with_name(out.stem + '_line.pdf'))
 
-    def fig3(b):  # detour (walks: only if they reached b), gap, % of the distance left (walks short of b); within TAU?
+    def fig3(r):  # the walk's detour (if it reached b), gap and % of the distance left (if it did not); within TAU?
+        b = r['walk']
         if b is None:
             return (np.nan, np.nan, np.nan), False
-        done = b.get('reached', True)
+        done = b['reached']
         return (b['ratio'] - 1 if done else np.nan, b['max_dev'], np.nan if done else 100 * b['left']), \
             b['max_dev'] <= TAU
 
-    fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.4))
-    left = axes[1, 0].twinx()
-    for row, key in enumerate(('n20', 'walk')):
-        for k, (x, ys, ok) in _lines(recs, lambda r: fig3(r[key]), f'Fig. 3, {key}').items():
-            for ax, y in zip(axes[row], ys):
-                _series(ax, x, y, ok, STYLE[k])
-            if key == 'walk':
-                _series(left, x, ys[2], ok, STYLE[k], '^')
+    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
+    left = axes[0].twinx()
+    for k, (x, ys, ok) in _lines(recs, fig3, 'Fig. 3').items():
+        for ax, y in zip(axes, ys):
+            _series(ax, x, y, ok, STYLE[k])
+        _series(left, x, ys[2], ok, STYLE[k], '^')
     left.set(ylim=(0, 100), ylabel='distance left to $\\theta_B$ (%)')
-    for row, name in enumerate(('$N = 20$ path', 'level-set walk')):
-        axes[row, 0].set(yscale='log', ylabel=name, title='length / distance $-$ 1 (weights)')
-        axes[row, 1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
-        axes[row, 1].axhline(TAU, color='k', lw=0.5, ls=':')
-        lo, hi = axes[row, 1].get_ylim()
-        axes[row, 1].set_ylim(min(lo, 1e-3), max(hi, 2 * TAU))  # tau inside; labelled powers of 10, as in Fig. 1
-    _finish(fig, axes.ravel(), recs, h + marks + [plt.Line2D([], [], color='k', marker='^', ms=3, ls='')],
+    axes[0].set(yscale='log', ylabel='level-set walk', title='length / distance $-$ 1 (weights)')
+    gap_axis(axes[1])
+    _finish(fig, axes, recs, h + marks + [plt.Line2D([], [], color='k', marker='^', ms=3, ls='')],
             names + [f'within $\\tau$ = {TAU:g}', 'missed $\\tau$', 'distance left (right axis)'],
             out.with_name(out.stem + '_robust.pdf'))
 
