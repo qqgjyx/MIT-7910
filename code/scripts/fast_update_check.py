@@ -1,10 +1,11 @@
 """Equivalence and profile of optim.muon.fast_update (optim/muon.py, fast_muon_step), on a GPU:
 
-    python scripts/fast_update_check.py [momentum dump .pt ...]   (dumps: analysis/negp_fast/*.pt, their `final` matrices)
+    python scripts/fast_update_check.py [--no-profile] [momentum dump .pt ...]   (dumps: analysis/negp_fast/*.pt)
 
 1. Equivalence: one optimizer step with the flag off and on from the same matrices, for Muon and every LC set: random
-   matrices with the shapes of the 14M GPT's 36 Muon matrices, and the real Nesterov inputs of the dumps. Per matrix
-   |U_on - U_off|_F / |U_off|_F; for scale, the same distance from U_off to the method run in float32 without TF32.
+   matrices with the shapes of the 14M GPT's 36 Muon matrices, and the real Nesterov inputs of the dumps (`final`). Per
+   matrix |U_on - U_off|_F / |U_off|_F. For scale, the same distance from U_off to: the flag-off update of the input
+   times 1 + 2^-9 (the same update in exact arithmetic, rounded differently), and the method run in float32.
 2. Profile: one optimizer step of Muon and LC5 on the GPT (tinystories_10m, random tokens), flag off and on: GPU kernels,
    their summed time (matrix products / the rest), the CPU time to issue the step, and the training step.
 """
@@ -60,14 +61,16 @@ def rel(a, b):
 
 
 def equivalence(sets, methods):
-    print(f'{"matrices":<34} {"method":<10} {"max |on-off|/|off|":>18} {"median":>9} {"max |f32-off|/|off|":>19}')
+    print(f'{"matrices":<34} {"method":<10} {"max |on-off|/|off|":>18} {"median":>9} {"max |scaled-off|/|off|":>22}'
+          f' {"max |f32-off|/|off|":>19}')
     worst = 0.0
     for name, mats in sets.items():
         for label, kw in methods.items():
             off = update(mats, False, **kw)
             d, r = rel(update(mats, True, **kw), off), rel(reference(mats, **kw), off)
+            s = rel(update([m * (1 + 2 ** -9) for m in mats], False, **kw), off)
             worst = max(worst, max(d))
-            print(f'{name:<34} {label:<10} {max(d):>18.2e} {sorted(d)[len(d) // 2]:>9.2e} {max(r):>19.2e}')
+            print(f'{name:<34} {label:<10} {max(d):>18.2e} {sorted(d)[len(d) // 2]:>9.2e} {max(s):>22.2e} {max(r):>19.2e}')
     print(f'largest relative difference, flag on vs off: {worst:.2e}')
 
 
@@ -126,11 +129,13 @@ def main():
     print(torch.cuda.get_device_name(), torch.__version__)
     g = torch.Generator(device='cuda').manual_seed(0)
     sets = {'random, GPT shapes (36)': [torch.randn(s, device='cuda', generator=g) for s in SHAPES * 6]}
-    for path in sys.argv[1:]:
+    for path in [a for a in sys.argv[1:] if a != '--no-profile']:
         final = torch.load(path, map_location='cuda', weights_only=False)['final']
         sets[path.rsplit('/', 1)[-1][:-3][-34:]] = list(final.values())
     methods = {'muon': {}, **{f'lc{k}_p{p:g}': dict(sv_power=p, lc_steps=k) for p, k in M.LC}}
     equivalence(sets, methods)
+    if '--no-profile' in sys.argv:
+        return
 
     print(f'\n{"optimizer step":<12} {"kernels":>8} {"(mm)":>5} {"GPU ms":>7} {"(mm)":>6} {"issue ms":>9} {"wall ms":>8}'
           f' {"train step ms":>14}')
