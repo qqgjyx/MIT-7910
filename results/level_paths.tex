@@ -24,26 +24,27 @@
 \maketitle
 \vspace{-0.8em}
 
-% ANSWER
+%ANSWER%
 
 \textbf{Setup.} The models are the 14M-parameter GPTs on TinyStories of Fig.~1 of the checkpoint report: AdamW and
 Muon from one initialization, data orders 0 and 1. The six loss levels are the losses of AdamW (order 0) at steps
 397, 1440, 3300, 5000, 7500 and 10000, i.e.\ 4\% to 100\% of its training. At each level, every run contributes the
-checkpoint whose training loss is closest to the level. Pairs: AdamW vs Muon on the same data order (blue) and, as the floor, two data
-orders of one optimizer (grey). Losses are means over 512 training sequences; a loss difference between two models
-has noise 0.002 nats.
+checkpoint whose training loss is closest to the level. Pairs: AdamW vs Muon on the same data order (blue) and, as
+the floor, two data orders of one optimizer (grey).
 
-\textbf{Measures.} \emph{Straight line:} the loss along $(1-t)\theta_A + t\theta_B$ minus the linear interpolation of
-the endpoint losses; the rise is its maximum and the dip its minimum. \emph{Constant-loss path:} $N$ points between
-$\theta_A$ and $\theta_B$, started on the line, are moved until every point has the target loss (interpolated
-between the endpoint losses) and the path is as short as the optimizer can make it. A stochastic string method does
-most of the work (each step: Adam on $(L_i - c_i)^2$, then curve shortening within the level set), and
-Levenberg--Marquardt steps on the penalty $w\sum_i (L_i - c_i)^2/\tau^2 + \sum_k \|\theta_{k+1}-\theta_k\|^2$ finish
-it. Every step uses fresh training sequences. A path is valid if the loss on 512 held-out sequences stays within
-$\tau = 0.02$ nats of the target at 9 points per segment; segments that leave this band get a midpoint, and the
-optimization continues. \emph{Detour ratio:} path length$/\|\theta_A - \theta_B\|$. \emph{Prediction-space ratio:} the
-same for the sum of Jensen--Shannon distances between consecutive models.
+\textbf{Measures.} \emph{Straight line:} the loss along $(1-t)\theta_A + t\theta_B$; its \emph{rise} is the largest
+excess over the linear interpolation of the endpoint losses. \emph{Constant-loss path:} $N=10$ points between
+$\theta_A$ and $\theta_B$, started on the line, are moved until each has its target loss (interpolated between the
+endpoint losses) while the path is kept short. Each pair gets the same budget: a stochastic string method (up to 6000
+steps; each step does Adam on $(L_i - c_i)^2$ and pulls the points together), Levenberg--Marquardt steps, curve
+shortening within the level set, and, if the points are still off the level, one 2500-step continuation of the
+string method without the pull. Every step uses fresh training sequences. A path is \emph{valid at $\tau$} if the loss
+on 512 held-out sequences stays within $\tau$ of the target at 9 points per segment; up to four times, segments that
+leave this band get a midpoint and the optimization continues. We report $\tau = 0.02$ nats and, for the pairs that
+miss it, $\tau = 0.1$: the optimization is the same, only the check and the midpoints use 0.1. \emph{Detour:} path
+length$/\|\theta_A - \theta_B\| - 1$. \emph{Prediction-space ratio:} the sum of Jensen--Shannon distances between
+the next-token predictions of consecutive models along the path, divided by that between the endpoints.
 
-% RESULTS
+%RESULTS%
 
 \end{document}
