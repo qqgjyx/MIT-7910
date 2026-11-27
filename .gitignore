@@ -23,3 +23,6 @@ eoss/
 *.out
 *.run.xml
 *-blx.bib
+
+# Python bytecode caches
+__pycache__/
