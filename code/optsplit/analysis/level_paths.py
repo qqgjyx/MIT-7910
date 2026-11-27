@@ -976,11 +976,13 @@ def cmd_work(args):
     and nothing is making them. Restarts itself in place when asked (restart_if_asked), dropping its locks. With YIELD=1 in the
     environment, stops (exit 0) instead of taking a new task while a job of the user that is not a level-paths one
     waits, unheld, for this job's partition; with YIELD=limit, only while it waits for a per-user limit (QOS...,
-    Assoc...: it would start if this job ended)."""
+    Assoc...: it would start if this job ended). A task that ran out of GPU memory (its .oom file holds the largest
+    GPU it failed on) is left to larger GPUs."""
     global RESTART
     A = Path(args.dir)
     RESTART, model, sets = A / 'restart_workers', None, None
     me = f"{os.environ.get('SLURM_JOB_ID', 'local')}:{socket.gethostname()}:{os.getpid()}"
+    gpu = torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0
     for t in task_list(A, args):  # locks this process took before a restart in place
         lock = Path(task_out(t, args)).with_suffix('.lock')
         if lock.exists() and lock.read_text().strip() == me:
@@ -999,7 +1001,8 @@ def cmd_work(args):
         T = [t for t in task_list(A, args) if t[0] <= args.max_tier]
         for t in T:
             f = task_out(t, args)
-            if not claim(f):
+            oom = Path(f).with_suffix('.oom')
+            if oom.exists() and float(oom.read_text()) >= gpu or not claim(f):
                 continue
             _, kind, sel, _, level, pair, n, seed = t
             sa_, sb_, _ = json.loads(sel.read_text())[level]['pairs'][pair]
@@ -1021,7 +1024,8 @@ def cmd_work(args):
                     do_band(model, sets, sa_, sb_, args, f, n=n, perturb=args.perturb if seed else 0.0,
                             perturb_seed=seed or 1)
             except torch.OutOfMemoryError:  # the GPU is shared by the job's workers: leave the task to another
-                print('out of GPU memory: this worker stops and leaves the task to others', flush=True)
+                print('out of GPU memory: this worker stops and leaves the task to larger GPUs', flush=True)
+                oom.write_text(str(max(gpu, float(oom.read_text()) if oom.exists() else 0)))
                 release(f)
                 return 0
             release(f)
