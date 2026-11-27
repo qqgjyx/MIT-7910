@@ -34,8 +34,8 @@ for key, label, color in (("gram_float32", "Gram LC, float32", "C1"), ("gram_tf3
                           ("gram_bfloat16", "Gram LC, bfloat16", "C0"), ("lc5m_bfloat16", "LC5m, bfloat16", "C3")):
     rel = np.abs(r[f"{key}_z"] - r[f"{key}_g"]) / np.abs(r[f"{key}_g"])
     med = [np.median(rel[q == x]) for x in bins]
-    b.plot(10 ** (bins + 0.125), np.maximum(med, 1e-8), color=color, lw=1.2, marker=".", ms=3,
-           label=f"{label} (floor {float(r[f'floor_{key}']):.0e})")
+    note = "NaN, not drawn" if np.isnan(med).all() else f"floor {float(r[f'floor_{key}']):.0e}"
+    b.plot(10 ** (bins + 0.125), np.maximum(med, 1e-8), color=color, lw=1.2, marker=".", ms=3, label=f"{label} ({note})")
 b.axhline(0.1, color="0.6", lw=0.6, ls=":")
 b.set(xscale="log", yscale="log", xlabel=r"$\sigma = s / \|N\|_{S_8}$ of the momentum's singular value",
       ylabel="median |computed - float64 map| / map",
