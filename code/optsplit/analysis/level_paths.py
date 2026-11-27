@@ -1142,19 +1142,19 @@ def _finish(fig, axes, recs, h, labels, out):
 
 
 def cmd_plot(args):
-    """Fig. 1 (--out), per tolerance (rows): the length ratios in weights and in predictions of the N=10 paths within
-    it, and the best held-out max |L - c| (open markers: no path within the tolerance) against the level. Next to it,
-    from the same records as the tables, with solid lines and squares for AdamW vs Muon order 1:
-    <out>_line.pdf (Fig. 2): the straight line's rise, prediction-space ratio and distance / distance from init;
-    <out>_robust.pdf (Fig. 3): the N=20 paths (length ratios, max |L - c|) and the level-set walks (length ratio in
-    weights, max |L - c|); open markers: max |L - c| > 0.02."""
+    """Fig. 1 (--out), per tolerance (rows): the length ratio in weights of the N=10 paths within it, and the best
+    held-out max |L - c| (open markers: no path within the tolerance) against the level. Next to it, from the same
+    records as the tables, with solid lines and squares for AdamW vs Muon order 1:
+    <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
+    <out>_robust.pdf (Fig. 3): the N=20 paths and the level-set walks (rows): length ratio in weights and max |L - c|;
+    open markers: max |L - c| > 0.02."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 14, 'axes.labelsize': 7,
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
-    fig, axes = plt.subplots(2, 3, figsize=(7.1, 4.4))
+    fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.4))
     for row, tol in enumerate((0.02, 0.1)):
         for pair, rs in recs.items():
             st, x = STYLE[pair], np.array([r['probe'] for r in rs])
@@ -1162,12 +1162,11 @@ def cmd_plot(args):
             get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
             gap = np.array([np.nan if g is None else g for _, g in res], dtype=float)
             ok = gap <= tol
-            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']), gap)):
+            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), gap)):
                 _series(ax, x, y, ok, st, st['ls'], 'o')
         axes[row, 0].set(yscale='log', ylabel=f'$\\tau$ = {tol:g}', title='length / distance $-$ 1 (weights)')
-        axes[row, 1].set(title='length / distance (predictions)')
-        axes[row, 2].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
-        axes[row, 2].axhline(tol, color='k', lw=0.5, ls=':')
+        axes[row, 1].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
+        axes[row, 1].axhline(tol, color='k', lw=0.5, ls=':')
     names = [STYLE[k]['label'] for k in STYLE]
     marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
              plt.Line2D([], [], color='k', marker='o', ms=3, mfc='w', ls='')]
@@ -1177,34 +1176,30 @@ def cmd_plot(args):
     out = Path(args.out)
     mk = lambda k: 's' if k == 'adamw-muon_d1' else 'o'
     h = [plt.Line2D([], [], color=STYLE[k]['color'], marker=mk(k), ms=3, lw=0.9) for k in STYLE]
-    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
+    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
     for pair, rs in recs.items():
         x, ok = np.array([r['probe'] for r in rs]), np.ones(len(rs), bool)
-        for ax, f in zip(axes, (lambda p: p['rise'], lambda p: p['pred_ratio'], lambda p: p['rel_distance']['all'])):
+        for ax, f in zip(axes, (lambda p: p['rise'], lambda p: p['rel_distance']['all'])):
             _series(ax, x, np.array([f(r['prof']) for r in rs]), ok, STYLE[pair], '-', mk(pair))
     axes[0].set(title='rise: max $L - c$ (nats)')
-    axes[1].set(title='length / distance (predictions)')
-    axes[2].set(title='distance / mean distance from init')
+    axes[1].set(title='distance / mean distance from init')
     _finish(fig, axes, recs, h, names, out.with_name(out.stem + '_line.pdf'))
 
-    fig, axes = plt.subplots(2, 3, figsize=(7.1, 4.4))
+    fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.4))
     for pair, rs in recs.items():
         x = np.array([r['probe'] for r in rs])
         for row, key in enumerate(('n20', 'walk')):
             get = lambda f: np.array([np.nan if r[key] is None else f(r[key]) for r in rs], dtype=float)
             ok = np.array([r[key] is not None and r[key]['ok'] for r in rs])
-            ys = (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']), get(lambda b: b['max_dev']))
-            for col in ((0, 1, 2) if key == 'n20' else (0, 2)):
-                _series(axes[row, col], x, ys[col], ok, STYLE[pair], '-', mk(pair))
+            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['max_dev']))):
+                _series(ax, x, y, ok, STYLE[pair], '-', mk(pair))
     for row, name in enumerate(('$N = 20$ path', 'level-set walk')):
         axes[row, 0].set(yscale='log', ylabel=name, title='length / distance $-$ 1 (weights)')
-        axes[row, 2].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
-        axes[row, 2].axhline(0.02, color='k', lw=0.5, ls=':')
-        lo, hi = axes[row, 2].get_ylim()
-        axes[row, 2].set_ylim(min(lo, 1e-3), max(hi, 0.1))  # two labelled powers of 10, as in Fig. 1
-    axes[0, 1].set(title='length / distance (predictions)')
-    axes[1, 1].axis('off')
-    _finish(fig, [*axes[0], axes[1, 0], axes[1, 2]], recs, h + marks,
+        axes[row, 1].set(yscale='log', title='max $|L - c|$ (held-out, nats)')
+        axes[row, 1].axhline(0.02, color='k', lw=0.5, ls=':')
+        lo, hi = axes[row, 1].get_ylim()
+        axes[row, 1].set_ylim(min(lo, 1e-3), max(hi, 0.1))  # two labelled powers of 10, as in Fig. 1
+    _finish(fig, axes.ravel(), recs, h + marks,
             names + ['within $\\tau$ = 0.02', 'missed $\\tau$'], out.with_name(out.stem + '_robust.pdf'))
 
 
@@ -1213,11 +1208,10 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 
 def cmd_table(args):
-    """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, prediction-space ratio, distance /
-    distance from init), then at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%) and prediction-space
-    ratio (if within tau) and the best held-out max |L - c|, and the string-method steps. Then a
-    second table: the N=20 band's length / distance - 1 (%), prediction-space ratio and max |L - c|, and the level-set
-    walk's length / distance - 1 (%) and max |L - c|; values in parentheses missed tau = 0.02."""
+    """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, distance / distance from init), then
+    at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%) (if within tau) and the best held-out max |L - c|,
+    and the string-method steps. Then a second table: the N=20 band's and the level-set walk's length / distance - 1 (%)
+    and max |L - c|; values in parentheses missed tau = 0.02."""
     recs = collect(args.out_dirs)
     f = lambda v, d=2, ok=True: '--' if v is None else (f'{v:.{d}f}' if ok else f'({v:.{d}f})')
     short = {'adamw-muon_d0': 'AdamW--Muon, 0', 'adamw-muon_d1': 'AdamW--Muon, 1', 'adamw_d0-d1': 'AdamW, 0--1',
@@ -1232,15 +1226,14 @@ def cmd_table(args):
                 p, cells = r['prof'], []
                 for tol in (0.02, 0.1):
                     b, gap = at_tol(r, tol)
-                    cells += [f(b and 100 * (b['ratio'] - 1)), f(b and b['pred_ratio']), f(gap, 3)]
+                    cells += [f(b and 100 * (b['ratio'] - 1)), f(gap, 3)]
                 head = f'{x:.2f} ({round(s / 100)}\\%)' if first and s else ''
                 first = False
-                rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['pred_ratio']), f(p['rel_distance']['all']),
+                rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['rel_distance']['all']),
                                         *cells, '--' if r['n10'] is None else str(effort(r['n10'])[0])]) + r' \\')
-                n20, cells = r['n20'], []
-                for b in (n20, r['walk']):
+                cells = []
+                for b in (r['n20'], r['walk']):
                     cells += [f(b and 100 * (b['ratio'] - 1), 2, b is None or b['ok']), f(b and b['max_dev'], 3)]
-                cells.insert(1, f(n20 and n20['pred_ratio'], 2, n20 is None or n20['ok']))
                 extra.append(' & '.join([head, short[pair], *cells]) + r' \\')
         rows.append(r'\midrule')
         extra.append(r'\midrule')
