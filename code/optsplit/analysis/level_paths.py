@@ -1025,10 +1025,10 @@ def cmd_work(args):
             time.sleep(60)
 
 
-STYLE = {'adamw-muon_d0': dict(color='C0', label='AdamW vs Muon, same data order'),
-         'adamw-muon_d1': dict(color='C0'),
-         'adamw_d0-d1': dict(color='0.25', label='AdamW, two data orders'),
-         'muon_d0-d1': dict(color='0.6', label='Muon, two data orders')}
+STYLE = {'adamw-muon_d0': dict(color='C0', ls='-', label='AdamW vs Muon, order 0'),
+         'adamw-muon_d1': dict(color='C0', ls='--', label='AdamW vs Muon, order 1'),
+         'adamw_d0-d1': dict(color='0.25', ls='-', label='AdamW, orders 0 vs 1'),
+         'muon_d0-d1': dict(color='0.6', ls='-', label='Muon, orders 0 vs 1')}
 
 
 def collect(out_dirs):
@@ -1043,6 +1043,8 @@ def collect(out_dirs):
         for n in (10, 20):
             g = out / 'band' / f'{f.stem}_n{n}.json'
             r[f'n{n}'] = json.loads(g.read_text()) if g.exists() else None
+        g = out / 'band_t0.1' / f'{f.stem}_n10.json'
+        r['n10_t01'] = json.loads(g.read_text()) if g.exists() else None
         g = sorted((out / 'walk').glob(f'{f.stem}_mu*.json'))
         r['walk'] = json.loads(g[0].read_text()) if g else None
         recs.setdefault(pair, []).append(r)
@@ -1064,7 +1066,15 @@ def effort(res):
     return steps, min(max(c['worst']) for c in res['checks'])
 
 
+def at_tol(r, tol):
+    """The N=10 band result of record r that counts at tol: at 0.02 the band itself; at 0.1 its continuation in
+    band_t0.1/ if there is one, else the band (valid at 0.02, or a miss without saved points to continue from)."""
+    return r['n10_t01'] if tol > 0.05 and r.get('n10_t01') else r['n10']
+
+
 def cmd_plot(args):
+    """Per tolerance (rows): the N=10 paths' length ratio in weights and in predictions and the best held-out
+    max |L - c| against the level; filled markers are paths within the tolerance, open ones missed it."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -1072,46 +1082,42 @@ def cmd_plot(args):
     plt.rcParams.update({'font.size': 7, 'axes.titlesize': 7, 'axes.titlepad': 9, 'axes.labelsize': 7,
                          'legend.fontsize': 6, 'xtick.labelsize': 6, 'ytick.labelsize': 6})
     recs = collect(args.out_dirs)
-    fig, axes = plt.subplots(2, 2, figsize=(7.1, 3.9))
-    axes = axes.ravel()
-    for pair, rs in recs.items():
-        st = STYLE[pair]
-        x = np.array([r['probe'] for r in rs])
-        val = lambda f: np.array([np.nan if v is None else v for v in map(f, rs)], dtype=float)
-        up = val(lambda r: r['n10'] and r['n10']['valid']['ratio'])
-        lo = val(lambda r: r['n20'] and r['n20']['fixed']['ratio'])
-        axes[0].plot(x, up - 1, 'o-', ms=2.5, lw=0.9, **st)
-        axes[0].vlines(x, lo - 1, up - 1, color=st['color'], lw=0.6)
-        axes[0].plot(x, lo - 1, '_', ms=4, color=st['color'])
-        axes[1].plot(x, [r['prof']['rise'] for r in rs], 'o-', ms=2.5, lw=0.9, color=st['color'])
-        axes[1].plot(x, [-r['prof']['dip'] for r in rs], 'o--', ms=2.5, lw=0.9, color=st['color'], mfc='w')
-        axes[2].plot(x, val(lambda r: r['n10'] and r['n10']['valid']['pred_ratio']), 'o-', ms=2.5, lw=0.9,
-                     color=st['color'])
-        axes[2].plot(x, [r['prof']['pred_ratio'] for r in rs], 'o--', ms=2.5, lw=0.9, color=st['color'], mfc='w')
-        axes[3].plot(x, [r['prof']['rel_distance']['all'] for r in rs], 'o-', ms=2.5, lw=0.9, color=st['color'])
-    axes[0].set(yscale='log', title='constant-loss path: length / distance $-$ 1')
-    axes[1].axhline(0, color='k', lw=0.5)
-    axes[1].set(title='straight line: rise and dip (nats)')
-    axes[2].set(yscale='log', title='prediction space: length / distance')
-    axes[3].set(title='distance / distance from init')
+    fig, axes = plt.subplots(2, 3, figsize=(7.1, 4.4))
+    for row, tol in enumerate((0.02, 0.1)):
+        for pair, rs in recs.items():
+            st, x = STYLE[pair], np.array([r['probe'] for r in rs])
+            res = [at_tol(r, tol) for r in rs]
+            get = lambda f: np.array([np.nan if b is None else f(b) for b in res], dtype=float)
+            ok = get(lambda b: b['max_dev'] <= tol) == 1
+            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']),
+                                         get(lambda b: effort(b)[1]))):
+                ax.plot(x, y, ls=st['ls'], lw=0.8, color=st['color'])
+                ax.plot(x[ok], y[ok], 'o', ms=3, color=st['color'])
+                ax.plot(x[~ok], y[~ok], 'o', ms=3, mfc='w', color=st['color'])
+        axes[row, 0].set(yscale='log', ylabel=f'$\\tau$ = {tol:g}', title='length / distance $-$ 1 (weights)')
+        axes[row, 1].set(title='length / distance (predictions)')
+        axes[row, 2].set(yscale='log', title='best max $|L - c|$ (held-out, nats)')
+        axes[row, 2].axhline(tol, color='k', lw=0.5, ls=':')
     at = {}
     for rs in recs.values():
         for r in rs:
             if r['step']:
                 at.setdefault(r['step'], []).append(r['probe'])
     xs = [r['probe'] for rs in recs.values() for r in rs]
-    for ax in axes:
+    for ax in axes.ravel():
         loss_axis(ax)
         ax.set_xlim(max(xs) + 0.2, min(xs) - 0.02)
-        ax.set_xlabel('training loss')
+        ax.set_xlabel('training loss at the level')
         for s, v in at.items():  # the levels, as a fraction of AdamW training (10k steps)
             ax.text(np.mean(v), 1.01, f'{round(s / 100)}%', transform=ax.get_xaxis_transform(), ha='center',
                     va='bottom', fontsize=5)
     from optsplit.analysis.plots import panel_labels
-    panel_labels(axes)
-    h = [plt.Line2D([], [], color=STYLE[k]['color'], lw=0.9) for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')]
-    fig.legend(h, [STYLE[k]['label'] for k in ('adamw-muon_d0', 'adamw_d0-d1', 'muon_d0-d1')], loc='lower center',
-               ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.03))
+    panel_labels(axes.ravel())
+    h = [plt.Line2D([], [], color=STYLE[k]['color'], ls=STYLE[k]['ls'], lw=0.9) for k in STYLE]
+    h += [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''), plt.Line2D([], [], color='k', marker='o', ms=3,
+                                                                              mfc='w', ls='')]
+    fig.legend(h, [STYLE[k]['label'] for k in STYLE] + ['within $\\tau$', 'missed $\\tau$'], loc='lower center',
+               ncol=6, frameon=False, bbox_to_anchor=(0.5, -0.03))
     fig.tight_layout(rect=(0, 0.03, 1, 1))
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.out, bbox_inches='tight')
