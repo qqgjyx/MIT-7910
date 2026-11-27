@@ -1,11 +1,10 @@
 % Written by code/scripts/lc5m_section.py (scripts/lc5m_section.sh); edits here are overwritten.
-\clearpage
-\paragraph{LC5m: LC5 with a Muon floor (in progress).} LC5m is LC5 (\cref{tab:lc}) with a hard constraint: every singular value of its update lies between Muon's value and the exact $s^{-0.3}$.
+\paragraph{LC5m: LC5 with a Muon floor (in progress).} LC5m is LC5 with a hard constraint: every singular value of its update lies between Muon's value and the exact $s^{-0.3}$. Until its own timing job has run, its GPU time uses LC5's time per step.
 
 \begin{table}[H]
 \centering
 \small
-\caption{LC5m, one row per data order. GPU minutes until the validation loss first reaches 1.3391, as in \cref{tab:negp,tab:lc}; ms per step: Muon 117, LC5 123, exact 1081, AdamW 107, LC5m 123 (timed as LC5 until its own timing pilot has run). Exact: exact SVD, $p=-0.3$. running: not finished; --: not run. Mean: over the orders where LC5m has finished (none yet).}
+\caption{LC5m against the other methods, one row per data order; exact: exact SVD at $p=-0.3$. running: not finished; --: not run; mean: over the orders LC5m has finished (none yet).}
 \label{tab:lc5m}
 \setlength{\tabcolsep}{3.5pt}
 \begin{tabular}{l ccccc ccccc}
@@ -24,10 +23,3 @@ mean & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\linewidth]{ts10m/lc5m_gpu_time_ce.pdf}
-\caption{As \cref{fig:gputime}, for LC5m, LC5 and Muon on data order 0 (no LC5m run has finished yet).}
-\label{fig:lc5m}
-\end{figure}

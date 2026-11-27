@@ -28,16 +28,16 @@
 \maketitle
 \vspace{-0.8em}
 
-\paragraph{Does a negative power $p$ help under cross-entropy?} At Muon's learning rate (0.01), slightly, but not for the same GPU time. The final validation loss is lowest at $p=-0.3$: 1.3002 against 1.3049 for standard Muon. It rises on both sides, steeply below $p=-0.5$ (\cref{tab:negp}). On three data orders, $p=-0.3$ beats Muon each time, by 0.0047, 0.0015 and 0.0115 (mean 1.3027 against 1.3086); for comparison, Muon's final loss has a standard deviation of 0.0033 over five data orders, so the smallest gain is within noise, but all three have the same sign. At half the rate (0.005), the best power moves towards 0: $p=-0.1$ ends at 1.3016 and $p=0$ at 1.3024, against 1.3077 for standard Muon, while $p=-0.3$ ends at 1.3186; the best run overall is still $p=-0.3$ at rate 0.01. An exact SVD makes each step 9 times slower than Muon's. LC12, a cheap approximation of the $p=-0.3$ update from 12 Newton--Schulz iterates, matches the exact run (mean 1.3020 against 1.3027) at about 1.35 times Muon's step time, but given the GPU time of 10{,}000 Muon steps it ends far behind Muon (1.3337 against 1.3086; \cref{tab:lc}).
+\paragraph{Does a negative power $p$ help under cross-entropy?} Slightly when runs are compared at equal steps; not at equal GPU time. At Muon's learning rate (0.01), $p=-0.3$ gives the lowest final validation loss, 1.3002 against 1.3049 for standard Muon (\cref{tab:negp,fig:loss}). It wins on all three data orders tried (mean 1.3027 against 1.3086), though its smallest gain, 0.0015, is within noise: Muon's final loss has a standard deviation of 0.0033 over five data orders. At half the rate, the best power is $p=-0.1$. An exact SVD makes each step 9 times slower than Muon's, and even its cheap approximation LC12 loses to Muon at equal GPU time (\cref{tab:lc,fig:lc}).
 
-\paragraph{What $p$ is.} Our variant takes the SVD $U\,\mathrm{diag}(s)\,V^\top$ of Muon's momentum matrix and updates the weights by $U\,\mathrm{diag}(s^p)\,V^\top$, rescaled to the Frobenius norm of the $p=0$ update. $p=0$ gives every direction the same step: this is Muon with exact orthogonalization; standard Muon approximates it by a Newton--Schulz iteration. $p<0$ gives the largest steps to the directions where the momentum is smallest. For $p<0$, each singular value is divided by the largest one and a ratio below $10^{-6}$ is set to $10^{-6}$ before taking the power.
+\paragraph{What $p$ is.} We take the SVD $U\,\mathrm{diag}(s)\,V^\top$ of Muon's momentum matrix and update the weights by $U\,\mathrm{diag}(s^p)\,V^\top$, rescaled to the Frobenius norm of the $p=0$ update. $p=0$ is Muon with exact orthogonalization (standard Muon approximates it by a Newton--Schulz iteration); $p<0$ gives the largest steps to the directions where the momentum is smallest. For $p<0$, $s$ is first divided by its largest value, and ratios below $10^{-6}$ are set to $10^{-6}$.
 
-\paragraph{Runs.} A 14M-parameter GPT on TinyStories, cross-entropy loss, 10{,}000 steps, data order (the shuffling seed) 0 unless stated, on L40S GPUs. Learning rate 0.01 (Muon's best rate with this loss) and half of it. Standard Muon and AdamW (rate 0.002) come from our main Muon-against-AdamW runs: same model, data, steps and GPU type.
+\paragraph{Runs.} A 14M-parameter GPT on TinyStories, cross-entropy loss, 10{,}000 steps, data order (the shuffling seed) 0 unless stated. Learning rate 0.01 (Muon's best with this loss) or 0.005; standard Muon and AdamW (rate 0.002) come from our main Muon-against-AdamW runs. GPU time is the step times the method's time per step, measured in short timing jobs on one L40S GPU shared by two copies of the run.
 
 \begin{table}[H]
 \centering
 \small
-\caption{Muon with singular values raised to $p$, data order 0. Column 2: the first step at which the training loss reaches 1.81 (the level of our earlier table for $p\ge0$), at rate 0.01. Columns 3--4 at that step: stable rank ($\|W\|_F^2/\sigma_1^2$) and $\sigma_1/\sigma_{\mathrm{median}}$, means over the 36 weight matrices. Column 5: for the rate-0.01 runs, the first step at which the validation loss reaches AdamW's final loss, 1.3391. Columns 6--7: GPU minutes until the validation loss first reaches 1.3391, at either rate: the step there (linear between evaluations) times the method's unrounded time per step (\cref{fig:gputime}); never: not within the 10{,}000 steps. Not run: $p>0$ at rate 0.005, since the minimum at that rate is already bracketed at $p\le0$.}
+\caption{Muon with singular values raised to $p$, data order 0. Stable rank ($\|W\|_F^2/\sigma_1^2$) and $\sigma_1/\sigma_{\mathrm{median}}$: means over the 36 weight matrices at training loss 1.81; 1.3391: AdamW's final validation loss; never: not reached in 10{,}000 steps.}
 \label{tab:negp}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{l cccc cc cc}
@@ -65,25 +65,18 @@ AdamW (rate 0.002) & 1438 & 32.9 & 7.95 & 10000 & 17.9 & -- & 1.3391 & -- \\
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/dose_loss_ce.pdf}
-\caption{Training (top) and validation (bottom) loss at rate 0.01, data order 0, one colour per $p$ (yellow to dark purple: negative; blue: positive; black: $p=0$). Left: the whole run, loss axis logarithmic in (loss $-$ 1); the horizontal line is the loss 1.81 of \cref{tab:negp}. Right: from step 5000 on, linear axis capped at AdamW's loss at step 5000; curves above it are cut off.}
+\caption{Training (top) and validation (bottom) loss against step, rate 0.01, data order 0, one colour per $p$. (a, c) Whole run, log axis in (loss $-$ 1), grey line at training loss 1.81; (b, d) from step 5000, linear, capped at AdamW's loss at step 5000.}
 \label{fig:loss}
 \end{figure}
 
-\paragraph{Paths.} We measure how far each run is from standard Muon on the same data order by the mean Jensen--Shannon divergence (JS, in bits) of their next-token predictions on held-out text, as in Fig.~1 of our checkpoint report. AdamW on the same data order is the reference: like the $p$ runs, it sees the same batches as Muon. From $p=-0.3$ to $p=0.25$, a run is closer to Muon than AdamW is, at equal step and at equal training loss (\cref{fig:paths}; at loss 1.81, $p=-0.3$ is at 0.079 bits and AdamW at 0.122). So $p=-0.3$ changes the path less than switching to AdamW does, yet it lowers the final loss on all three data orders. At equal loss, $p=-0.5$, $p=0.5$ and $p=0.75$ are about as far from Muon as AdamW is, and $p\le-0.75$ farther.
+\paragraph{Paths.} We compared each run with standard Muon on the same data order by the Jensen--Shannon divergence between their next-token predictions on held-out text. For $-0.3\le p\le0.25$, a run stays closer to Muon than AdamW does, at equal step and at equal training loss (at loss 1.81: 0.079 bits for $p=-0.3$, 0.122 for AdamW).
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=\linewidth]{ts10m/dose_paths_ce.pdf}
-\caption{JS between each run (data order 0, rate 0.01) and standard Muon on the same data order. (a) At equal step. (b) At equal training loss: each checkpoint (one every 250 steps) is compared with two Muon checkpoints, those just before and after the step where Muon's smoothed training loss equals the run's, and the smaller JS is kept. Dotted: AdamW against Muon. Grey: two data orders of Muon (light) or of $p=-0.3$ (dark), which share no batches. Runs on one data order agree much more at the same step, having just seen the same batches; so a curve in (b) jumps up when its matched Muon checkpoint is no longer at its own step ($p=0.25$ at loss 1.6).}
-\label{fig:paths}
-\end{figure}
-
-\paragraph{A cheaper update (LC).} LC$k$ (linear combination) approximates the $p=-0.3$ update by a weighted sum of the first $k$ Newton--Schulz iterates (3 matrix products each), with weights fitted for $p=-0.3$; standard Muon uses 5 iterates. We ran LC with 5, 6, 8 and 12 iterates on three data orders (\cref{tab:lc}, \cref{fig:lc}). LC12 matches the exact update on average (1.3020 against 1.3027) at about 1.35 times Muon's step time, and LC8 comes close (1.3037). Measured in GPU time, none beats Muon (\cref{tab:lc,fig:gputime}): Muon reaches its own final loss after about 19 minutes, LC5 to LC12 after 19--25 minutes when they reach it at all. Given exactly Muon's GPU time, LC12 ends at 1.3337, far behind Muon's 1.3086: shrinking the schedule costs more than the better update gains. In our earlier runs with the MSE loss, another approximation (two-track Newton--Schulz, 12 steps) also matched the exact update (0.5628 against 0.5626), but it costs 47 matrix products to LC12's 36, so we skipped it here.
+\paragraph{A cheaper update (LC).} LC$k$ approximates the $p=-0.3$ update by a weighted sum of the first $k$ Newton--Schulz iterates (3 matrix products each; Muon uses 5), with weights fitted for $p=-0.3$. LC12 matches the exact update (mean final loss 1.3020 against 1.3027) at about 1.35 times Muon's time per step (\cref{tab:lc}). Yet no LC beats Muon at equal GPU time (\cref{fig:lc}c), and LC12 with its schedule shrunk to Muon's GPU time (7391 steps) ends at 1.3337, far behind Muon's 1.3086.
 
 \begin{table}[H]
 \centering
 \small
-\caption{Cheaper updates at $p=-0.3$, rate 0.01, data orders 0--2. ms per step: from one timing job on one L40S, each method run as two copies side by side. GPU minutes = steps $\times$ ms per step. Error: relative distance $\|Z-E\|_F/\|E\|_F$ between the update $Z$ and the exact one $E$, median over the 36 matrices and the logged steps, up to nine (the exact row: float32 against float64). Columns 9--11: GPU time until the validation loss reaches standard Muon's final one on the same data order. Last column: GPU time until it reaches 1.3391 (AdamW's final loss on d0, the same level for every data order), mean over d0--d2; \cref{tab:negp} gives d0 alone. LC12 at equal GPU time: LC12 with its whole schedule (warmup and decay) shrunk to 7391 steps, the GPU time of 10{,}000 Muon steps.}
+\caption{Cheaper updates at $p=-0.3$, rate 0.01, data orders 0--2. Error: median relative distance $\|Z-E\|_F/\|E\|_F$ between the update $Z$ and the exact one $E$; GPU minutes to Muon's final loss on the same data order, and to 1.3391 (mean over d0--d2).}
 \label{tab:lc}
 \setlength{\tabcolsep}{2.8pt}
 \begin{tabular}{l ccc cccc ccc c}
@@ -105,16 +98,9 @@ Muon (Newton--Schulz) & 15 & 117 & -- & 1.3049 & 1.3070 & 1.3138 & 1.3086 & \tex
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\linewidth]{ts10m/two_track_val_ce.png}
-\caption{Validation loss of the methods of \cref{tab:lc}; data order 0 thick, 1 and 2 thin. (a) The whole run, loss axis logarithmic in (loss $-$ 1). (b) From step 5000 on. LC12 at equal GPU time ends at step 7391; its learning rate decays earlier, so it is lower mid-run but ends higher.}
+\includegraphics[width=\linewidth]{ts10m/lc_val_ce.pdf}
+\caption{Validation loss at rate 0.01 (AdamW 0.002). (a, b) Against step: whole run (log axis in loss $-$ 1) and from step 5000; data order 0 thick, 1 and 2 thin. (c) Against GPU minutes, data order 0 (LC5m: each finished data order); grey line: AdamW's final loss, 1.3391.}
 \label{fig:lc}
-\end{figure}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\linewidth]{ts10m/gpu_time_val_ce.pdf}
-\caption{Validation loss against GPU time, rate 0.01 (AdamW 0.002), data order 0. GPU time = step $\times$ the method's time per step, measured in short timing jobs on one L40S (400 steps, without the Hessian and other measurements made during the long runs; the time per step of one run while a second identical run shares the GPU): Muon 117, LC5/6/8/12 123/126/142/159 and exact SVD 1081 ms per step (timed at $p=-0.3$, used for every $p$). AdamW: 107 ms per step, timed the same way in a second job (an earlier pilot gave 108 ms). The logged wall-clock is not used: the long runs shared GPUs, and some of them measured the Hessian. Horizontal line: AdamW's final loss, 1.3391, the level of the columns ``GPU min.\ to 1.3391'' of \cref{tab:negp,tab:lc}. (a) The whole run, loss axis logarithmic in (loss $-$ 1). (b) 10 to 27 minutes, linear axis capped at AdamW's loss at 10 minutes; the exact-SVD runs are still above it.}
-\label{fig:gputime}
 \end{figure}
 
 \input{lc5m_section}  % written by code/scripts/lc5m_section.sh

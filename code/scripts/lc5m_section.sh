@@ -1,6 +1,7 @@
 #!/bin/bash
-# Rebuilds the LC5m section of results/dose_negative_p_ce.tex on a laptop, then the PDF:
-#   bash code/scripts/lc5m_section.sh [--pilot <suite>/<name without _d0>] <LC5m run id> ...
+# Rebuilds Fig. 2 and the LC5m section of results/dose_negative_p_ce.tex on a laptop, then the PDF:
+#   bash code/scripts/lc5m_section.sh [--pilot <suite>/<name without _d0>] [<LC5m run id> ...]
+# (defaults: the runs of ts10m_ce_lcm and the pilot ts10m_ce_lcm_pilot/lc5m).
 # Copies config.yaml, metrics.jsonl and done of the runs it needs from ORCD (one ssh call, read-only) to
 # $TMPDIR/optsplit_orcd_logs, runs scripts/lc5m_section.py there (uv, with the packages it needs) and compiles the PDF.
 set -euo pipefail

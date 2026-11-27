@@ -32,7 +32,7 @@ from optsplit.analysis.io import Run, load_runs
 from optsplit.analysis.plots import _loss_axis, panel_labels
 from optsplit.analysis.rank_metrics import at_loss
 
-REFS = {'muon': ('Muon (Newton–Schulz)', dict(color='k', ls='--')), 'adamw': ('AdamW', dict(color='0.55', ls=':'))}
+REFS = {'muon': ('Muon (Newton–Schulz)', dict(color='k')), 'adamw': ('AdamW', dict(color='0.55'))}  # solid lines
 
 
 def first_step(run, key, level):
@@ -58,11 +58,11 @@ def exact(run):
 
 
 def color(p):
-    """p < 0 yellow-orange to dark purple, p > 0 blue, darker further from 0 (down to -1, up to 0.75); p = 0 black.
+    """p < 0 yellow-orange to dark purple, p > 0 blue, darker further from 0 (down to -1, up to 0.75); p = 0 green.
     The negative values that were run are spread evenly over the colour map, so that neighbours can be told apart."""
     if p < 0:
         return plt.get_cmap('inferno')(np.interp(p, [-1, -0.75, -0.5, -0.3, -0.1], [0.2, 0.36, 0.52, 0.69, 0.86]))
-    return 'k' if p == 0 else plt.get_cmap('Blues')(0.35 + 0.8 * p)
+    return '#008a17' if p == 0 else plt.get_cmap('Blues')(0.35 + 0.8 * p)
 
 
 def log_axis(ax, offset, ticks):
@@ -80,7 +80,7 @@ def curves(by_lr, refs, level, out, max_loss, offset, ticks):
             handles[f'$p={p:g}$'], = ax.plot(*run.series('eval', 'train_loss'), lw=0.9, color=color(p))
         for name, run in refs[lr].items():
             handles[REFS[name][0]], = ax.plot(*run.series('eval', 'train_loss'), lw=1, **REFS[name][1])
-        ax.axhline(level, color='k', lw=0.4)
+        ax.axhline(level, color='0.55', lw=0.4)
         log_axis(ax, offset, ticks)
         ax.set_xlim(0, None)
         ax.set_xlabel('step')
@@ -111,7 +111,7 @@ def curves_zoom(runs, refs, level, out, max_loss, offset, ticks, zoom):
             if label == REFS['adamw'][0]:
                 hi = v[steps >= zoom].max()
         if key == 'train_loss':
-            full.axhline(level, color='k', lw=0.4)
+            full.axhline(level, color='0.55', lw=0.4)
         log_axis(full, offset, ticks)
         full.set_ylim(min(np.nanmin(line.get_ydata()) for line in full.lines) - 0.003, max_loss)
         full.set_xlim(0, None)
