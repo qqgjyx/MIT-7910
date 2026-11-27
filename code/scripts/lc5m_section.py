@@ -1,8 +1,8 @@
 """Fig. 2 and the last section (LC5m) of results/dose_negative_p_ce.tex, both overwritten:
 
-- results/ts10m/lc_loss_ce.pdf: training and validation loss of LC5-LC12, LC12 at equal GPU time and Muon against the
-  step (data orders 0-2), and validation loss against GPU minutes (step x time per step from the timing pilots, as
-  gpu_time.py) on data order 0 with AdamW and LC5m (every finished data order); whole run and end of training;
+- results/ts10m/lc_loss_ce.pdf: mean over data orders 0-2 (LC5m: those finished) of the training and validation loss
+  of LC5-LC12, LC12 at equal GPU time and Muon against the step, and of the validation loss against GPU minutes (step x
+  time per step from the timing pilots, as gpu_time.py) with AdamW and LC5m; whole run and end of training;
 - results/lc5m_section.tex (which the document inputs): one row per data order with the final validation loss and the
   GPU minutes to AdamW's final loss of LC5m, Muon, LC5, the exact update and AdamW.
 
@@ -13,6 +13,7 @@ Run by scripts/lc5m_section.sh, which first copies the logs from ORCD (--files l
 Defaults: the runs of ts10m_ce_lcm and the pilot ts10m_ce_lcm_pilot/lc5m; LC5m is timed as LC5 until that pilot is done.
 """
 import argparse
+from functools import reduce
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -27,6 +28,7 @@ from optsplit.analysis.two_track import METHODS, SUITES, step_time
 RESULTS = Path(__file__).resolve().parents[2] / 'results'
 FIG = 'ts10m/lc_loss_ce.pdf'
 ORDERS = range(5)
+MEAN_ORDERS = (0, 1, 2)  # Fig. 2: the data orders of LC5-LC12
 SU = SUITES['ce']
 MUON = REFS['muon'][0]
 # Solid lines, one colour per method (checked with a colour-blindness validator)
@@ -42,13 +44,16 @@ def final(r):
     return r.series('eval', 'val_loss')[1][-1]
 
 
-def width(d):
-    return dict(lw=1.0) if d == 0 else dict(lw=0.5, alpha=0.6)
+def mean_curve(rs, key):
+    """The steps the runs share and the mean of `key` over the runs there."""
+    series = [r.series('eval', key) for r in rs]
+    common = reduce(np.intersect1d, [steps for steps, _ in series])
+    return common, np.mean([v[np.isin(steps, common)] for steps, v in series], axis=0)
 
 
 def figure(runs, sec, target, end_step=7000, end_minutes=15, ticks=(4, 3, 2, 1.75, 1.5, 1.4, 1.3)):
-    """Rows: training and validation loss against the step (LC and Muon, data orders 0-2), validation loss against GPU
-    minutes (data order 0, with AdamW and every finished LC5m run). Left: whole run, on log(L - 1); right: from
+    """Mean over data orders 0-2 (LC5m: those finished). Rows: training and validation loss against the step (LC and
+    Muon), validation loss against GPU minutes (also AdamW and LC5m). Left: whole run, on log(L - 1); right: from
     `end_step` or `end_minutes` on, linear, fitted to the curves there."""
     fig, axes = plt.subplots(3, 2, figsize=(7.1, 6.0), layout='constrained')
     handles = {}
@@ -56,16 +61,16 @@ def figure(runs, sec, target, end_step=7000, end_minutes=15, ticks=(4, 3, 2, 1.7
         start = end_minutes if by_time else end_step
         lo, hi = np.inf, -np.inf
         for name in STEPWISE + ['AdamW', 'LC5m'] if by_time else STEPWISE:
-            for d, r in runs[name].items():
-                if (d == 0 or name == 'LC5m') if by_time else d < 3:
-                    steps, v = r.series('eval', key)
-                    x = steps * sec[name] / 60 if by_time else steps
-                    line, = full.plot(x, v, color=COLORS[name], **width(d))
-                    end.plot(x[x >= start], v[x >= start], color=COLORS[name], **width(d))
-                    if d == 0 or name not in handles:
-                        handles[name] = line
-                    if (x >= start).any():
-                        lo, hi = min(lo, v[x >= start].min()), max(hi, v[x >= start].max())
+            rs = [r for d, r in runs[name].items() if d in MEAN_ORDERS]
+            if not rs:
+                continue
+            steps, v = mean_curve(rs, key)
+            x = steps * sec[name] / 60 if by_time else steps
+            label = name if len(rs) == len(MEAN_ORDERS) else f'{name} (mean of {len(rs)})'
+            handles[label], = full.plot(x, v, color=COLORS[name], lw=1)
+            end.plot(x[x >= start], v[x >= start], color=COLORS[name], lw=1)
+            if (x >= start).any():
+                lo, hi = min(lo, v[x >= start].min()), max(hi, v[x >= start].max())
         if by_time:
             for ax in (full, end):
                 ax.axhline(target, color='0.55', lw=0.4)

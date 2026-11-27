@@ -65,7 +65,7 @@ AdamW (rate 0.002) & 1438 & 32.9 & 7.95 & 10000 & 17.9 & -- & 1.3391 & -- \\
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/dose_loss_ce.pdf}
-\caption{Training (top) and validation (bottom) loss against step, rate 0.01, data order 0, one colour per $p$. (a, c) Whole run, log axis in (loss $-$ 1), grey line at training loss 1.81; (b, d) from step 5000, linear, capped at AdamW's loss at step 5000.}
+\caption{Training (top) and validation (bottom) loss against step, rate 0.01, one colour per $p$; data order 0 only, the one order with every $p$. (a, c) Whole run, log axis in (loss $-$ 1), grey line at training loss 1.81; (b, d) from step 5000, linear, capped at AdamW's loss at step 5000.}
 \label{fig:loss}
 \end{figure}
 
@@ -99,7 +99,7 @@ Muon (Newton--Schulz) & 15 & 117 & -- & 1.3049 & 1.3070 & 1.3138 & 1.3086 & \tex
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/lc_loss_ce.pdf}
-\caption{Training loss against step (top), validation loss against step (middle) and against GPU minutes (bottom), over the whole run (left, log axis in loss $-$ 1) and the end of training (right). Data orders 0--2 (0 thick) against step, 0 against GPU minutes (LC5m: each finished order); grey line: AdamW's final loss, 1.3391.}
+\caption{Mean over data orders 0--2 of the training loss against step (top), validation loss against step (middle) and against GPU minutes (bottom), over the whole run (left, log axis in loss $-$ 1) and the end of training (right); grey line: 1.3391.}
 \label{fig:lc}
 \end{figure}
 
