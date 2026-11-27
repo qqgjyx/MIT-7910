@@ -1,0 +1,45 @@
+{
+ "1.307": {
+  "c": 1.30745367705822,
+  "pick": {
+   "adamw_d0": [
+    "ts10m_main/adamw_d0:10000",
+    1.30745367705822
+   ],
+   "muon_d0": [
+    "ts10m_main/muon_d0:8000",
+    1.2959848642349243
+   ],
+   "muon_d1": [
+    "ts10m_main/muon_d1:8000",
+    1.2982381731271744
+   ],
+   "adamw_d1": [
+    "ts10m_main/adamw_d1:10000",
+    1.3097430169582367
+   ]
+  },
+  "pairs": {
+   "adamw-muon_d0": [
+    "ts10m_main/adamw_d0:10000",
+    "ts10m_main/muon_d0:8000",
+    0.011468812823295593
+   ],
+   "adamw-muon_d1": [
+    "ts10m_main/adamw_d1:10000",
+    "ts10m_main/muon_d1:8000",
+    0.011504843831062317
+   ],
+   "adamw_d0-d1": [
+    "ts10m_main/adamw_d0:10000",
+    "ts10m_main/adamw_d1:10000",
+    0.0022893399000167847
+   ],
+   "muon_d0-d1": [
+    "ts10m_main/muon_d0:8000",
+    "ts10m_main/muon_d1:8000",
+    0.002253308892250061
+   ]
+  }
+ }
+}
