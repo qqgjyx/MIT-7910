@@ -126,10 +126,20 @@ def test_band_respects_the_constraint_on_a_tiny_gpt(rotate):
 
 
 def test_level_walk_follows_a_circular_level_set():
+    """L = |x|^2, c = 1: the walk follows the unit circle to b and every checked point stays within tol of c."""
     obj = Toy(lambda x: x.pow(2).sum())
     angle = 2 * math.pi / 3
     a = torch.tensor([1.0, 0.0], dtype=torch.float64)
     b = torch.tensor([math.cos(angle), math.sin(angle)], dtype=torch.float64)
-    X, res = level_walk(obj, a, b, 1.0, 1.0, steps=40, tol=0.01, log=quiet)
-    assert res['reached'] and res['ok']
+    res = level_walk(obj, a, b, obj, 1.0, 1.0, tol=0.01, log=quiet)
+    assert res['reached'] and res['ok'] and res['at']['0.02']['reached']
+    assert np.abs(np.array(res['dense']['loss']) - 1).max() <= 0.01
     assert res['ratio'] == pytest.approx(angle / (2 * math.sin(angle / 2)), rel=0.01)
+
+
+def test_level_walk_stops_where_b_lies_along_the_gradient():
+    """Opposite points of the circle: every step towards b leaves the level, so the walk reports it as not reached."""
+    obj = Toy(lambda x: x.pow(2).sum())
+    a, b = torch.tensor([1.0, 0.0], dtype=torch.float64), torch.tensor([-1.0, 0.0], dtype=torch.float64)
+    res = level_walk(obj, a, b, obj, 1.0, 1.0, tol=0.01, log=quiet)
+    assert not res['reached'] and res['stop'] == 'gradient' and res['left'] == 1.0

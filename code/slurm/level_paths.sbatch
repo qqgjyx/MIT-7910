@@ -15,6 +15,7 @@
 #     walks in priority order (tiers <= MAXTIER, default 4; see task_list). The late level needs no reruns.
 #   - GROUP=1: one job per job name runs at a time (submit the same name with several GPU types): the first to start
 #     holds the others and releases them when it ends or is requeued (of two that start together, the lower id stays);
+#   - KINDS="walk": the workers take only these kinds of tasks (profile, band, band01, walk);
 #   - YIELD=1: the workers take no new task while another job of the user, not a level-paths one, waits for this
 #     partition (for deferred work on shared slots, with --nice). YIELD=limit: only while that job waits for a per-user limit
 #     (it would start if this job ended).
@@ -78,7 +79,7 @@ release_eval() {  # held level-paths groups with no running job: release them (t
 
 pids=
 for i in $(seq $WORKERS); do  # a failed worker is reported at once (exit 3: waiting for the reruns)
-    ( $LP work $A --max-tier $MAXTIER > $A/logs/work-$SLURM_JOB_ID-$i.out 2>&1 || { s=$?; [ $s = 3 ] ||
+    ( $LP work $A --max-tier $MAXTIER ${KINDS:+--kinds $KINDS} > $A/logs/work-$SLURM_JOB_ID-$i.out 2>&1 || { s=$?; [ $s = 3 ] ||
         echo "FAILED: worker $i (exit $s): see $A/logs/work-$SLURM_JOB_ID-$i.out"; exit $s; } ) &
     pids="$pids $!"
 done
