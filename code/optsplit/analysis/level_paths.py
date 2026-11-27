@@ -1085,16 +1085,16 @@ def effort(res):
 
 
 def at_tol(r, tol):
-    """The N=10 band result of record r that counts at tol: at 0.02 the band itself; at 0.1 the band if it is within
-    0.1 (so every such pair keeps its 0.02 path), else its continuation in band_t0.1/ if that is, else the closer."""
+    """(the shortest N=10 path of record r within tol, or None; the smallest held-out max |L - c| of its paths): at
+    0.02 the band; at 0.1 also its continuation in band_t0.1/."""
     cands = [b for b in ((r['n10'], r.get('n10_t01')) if tol > 0.05 else (r['n10'],)) if b]
-    ok = [b for b in cands if b['max_dev'] <= tol]
-    return ok[0] if ok else min(cands, key=lambda b: b['max_dev'], default=None)
+    return (min((b for b in cands if b['max_dev'] <= tol), key=lambda b: b['ratio'], default=None),
+            min((b['max_dev'] for b in cands), default=None))
 
 
 def cmd_plot(args):
-    """Per tolerance (rows): the N=10 paths' length ratio in weights and in predictions and the best held-out
-    max |L - c| against the level; filled markers are paths within the tolerance, open ones missed it."""
+    """Per tolerance (rows): the length ratios in weights and in predictions of the N=10 paths within it, and the
+    best held-out max |L - c| (open markers: no path within the tolerance) against the level."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -1107,10 +1107,10 @@ def cmd_plot(args):
         for pair, rs in recs.items():
             st, x = STYLE[pair], np.array([r['probe'] for r in rs])
             res = [at_tol(r, tol) for r in rs]
-            get = lambda f: np.array([np.nan if b is None else f(b) for b in res], dtype=float)
-            ok = get(lambda b: b['max_dev'] <= tol) == 1
-            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']),
-                                         get(lambda b: effort(b)[1]))):
+            get = lambda f: np.array([np.nan if b is None else f(b) for b, _ in res], dtype=float)
+            gap = np.array([np.nan if g is None else g for _, g in res], dtype=float)
+            ok = gap <= tol
+            for ax, y in zip(axes[row], (get(lambda b: b['ratio'] - 1), get(lambda b: b['pred_ratio']), gap)):
                 ax.plot(x, y, ls=st['ls'], lw=0.8, color=st['color'])
                 ax.plot(x[ok], y[ok], 'o', ms=3, color=st['color'])
                 ax.plot(x[~ok], y[~ok], 'o', ms=3, mfc='w', color=st['color'])
@@ -1150,8 +1150,8 @@ NAMES = {'adamw-muon_d0': 'AdamW vs Muon, order 0', 'adamw-muon_d1': 'AdamW vs M
 
 def cmd_table(args):
     """LaTeX rows, per level (decreasing loss) and pair: the straight line (rise, prediction-space ratio, distance /
-    distance from init), then at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%), prediction-space
-    ratio and best held-out max |L - c| (in parentheses: the path missed tau), and the string-method steps. Then a
+    distance from init), then at tau = 0.02 and 0.1 the N=10 path's length / distance - 1 (%) and prediction-space
+    ratio (if within tau) and the best held-out max |L - c|, and the string-method steps. Then a
     second table: the N=20 band's and the level-set walk's length / distance - 1 (%) and max |L - c| at tau = 0.02."""
     recs = collect(args.out_dirs)
     f = lambda v, d=2, ok=True: '--' if v is None else (f'{v:.{d}f}' if ok else f'({v:.{d}f})')
@@ -1166,10 +1166,8 @@ def cmd_table(args):
             for r in (r for r in recs.get(pair, []) if r['level'] == level):
                 p, cells = r['prof'], []
                 for tol in (0.02, 0.1):
-                    b = at_tol(r, tol)
-                    ok = b is not None and b['max_dev'] <= tol
-                    cells += [f(b and 100 * (b['ratio'] - 1), 2, ok), f(b and b['pred_ratio'], 2, ok),
-                              f(b and effort(b)[1], 3)]
+                    b, gap = at_tol(r, tol)
+                    cells += [f(b and 100 * (b['ratio'] - 1)), f(b and b['pred_ratio']), f(gap, 3)]
                 head = f'{x:.2f} ({round(s / 100)}\\%)' if first and s else ''
                 first = False
                 rows.append(' & '.join([head, short[pair], f(p['rise']), f(p['pred_ratio']), f(p['rel_distance']['all']),
