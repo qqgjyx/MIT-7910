@@ -335,9 +335,10 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     `shorten_steps` steps of curve shortening within the level set on `obj_shorten` (default obj); `obj_check`
     (default obj, with ca_check/cb_check) does the dense check. The points after the string and LM phases are saved
     to `stash` (if given), and a later call starts from there. If they are off the level (max |L - c| above 2 tol),
-    the string method continues from them once (per call) without the springs (beta = 0), which cut corners off the
-    level, with a quarter of the step size, warming up over 10% of `resume_steps` steps and annealing to 0 over the
-    rest, and the LM stages run again; the points closer to the level are kept. Returns (points, result)."""
+    the string method continues from them once without the springs (beta = 0), which cut corners off the level, with
+    a quarter of the step size, warming up over 10% of `resume_steps` steps and annealing to 0 over the rest, and the
+    LM stages run again; the points closer to the level are kept. Points still off the level get no insertion rounds
+    (the result is invalid). Returns (points, result)."""
     obj_check = obj_check or obj
     obj_string = obj_string or obj
     obj_shorten = obj_shorten or obj
@@ -512,7 +513,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         X = string_lm(X, False)
         if stash is not None and stages:
             torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
-    if resume_steps and stages and stages[-1]['max_r'] > 2 * tol:  # off the level: one continuation
+    strings = sum(s['w'] == 'string' for s in stages)
+    if resume_steps and stages and stages[-1]['max_r'] > 2 * tol and strings < 2:  # off the level: one continuation
         best = X, list(stages)
         X = string_lm(X, True)
         if stages[-1]['max_r'] >= best[1][-1]['max_r']:
@@ -541,6 +543,9 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         bad = np.flatnonzero(worst > tol)
         log(f'check {r}: {len(X)} points, worst segment {worst.max():.4f} (tol {tol}), {len(bad)} segments out')
         if not len(bad) or r == rounds or len(X) + len(bad) > max_points:
+            break
+        if stages and stages[-1]['max_r'] > 2 * tol:
+            log('no insertion rounds: the points are off the level')
             break
         P = [a, *X, b]
         new = []
@@ -972,13 +977,18 @@ def cmd_work(args):
             if model is None:
                 model, sets = _setup_from(sa_, args)
             print(f'task: tier {t[0]} {kind} {level} {pair} n={n} seed={seed} -> {f}', flush=True)
-            if kind == 'profile':
-                do_profile(model, sets, sa_, sb_, args, f)
-            elif kind == 'walk':
-                do_walk(model, sets, sa_, sb_, args, f)
-            else:
-                do_band(model, sets, sa_, sb_, args, f, n=n, perturb=args.perturb if seed else 0.0,
-                        perturb_seed=seed or 1)
+            try:
+                if kind == 'profile':
+                    do_profile(model, sets, sa_, sb_, args, f)
+                elif kind == 'walk':
+                    do_walk(model, sets, sa_, sb_, args, f)
+                else:
+                    do_band(model, sets, sa_, sb_, args, f, n=n, perturb=args.perturb if seed else 0.0,
+                            perturb_seed=seed or 1)
+            except torch.OutOfMemoryError:  # the GPU is shared by the job's workers: leave the task to another
+                print('out of GPU memory: this worker stops and leaves the task to others', flush=True)
+                release(f)
+                return 0
             release(f)
             if (A / 'select.json').exists() and not (A / 'tier1_done').exists() and \
                     all(task_out(u, args).exists() for u in task_list(A, args) if u[0] == 1):
@@ -1022,6 +1032,15 @@ def collect(out_dirs):
             r['step'] = step.get(r['level'])
         recs[pair].sort(key=lambda r: -r['level'])
     return recs
+
+
+def effort(res):
+    """(string-method steps, best max |L - c| on the held-out set over the dense checks) of a band result."""
+    steps, last = 0, 0
+    for h in res['history']:
+        if h.get('phase') == 'string':
+            steps, last = (steps + h['t'] - last, h['t']) if h['t'] > last else (steps + h['t'], h['t'])
+    return steps, min(max(c['worst']) for c in res['checks'])
 
 
 def cmd_plot(args):
@@ -1104,7 +1123,8 @@ def cmd_table(args):
                     f(n20 and n20['fixed']['ratio'], 4),
                     f(n10 and n10['valid']['ratio'], 4) + (f" ({n10['valid']['n']})" if n10 else ''),
                     f(n10 and n10['valid']['max_dev']), f(p['pred_ratio'], 2),
-                    f(n10 and n10['valid']['pred_ratio'], 2)]) + r' \\')
+                    f(n10 and n10['valid']['pred_ratio'], 2),
+                    f(n10 and effort(n10)[1]), '--' if n10 is None else str(effort(n10)[0])]) + r' \\')
 
 
 def cmd_profile(args):
