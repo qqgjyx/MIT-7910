@@ -33,7 +33,8 @@ for p<0 the singular values are first divided by the largest and those below 1e-
 are Muon ablations. `two_track_steps: K` (with `sv_power` -0.3 or -0.5) replaces the SVD by 4K-1 matrix products
 (`sv_power_two_track` in `optim/muon.py`): exact enough for K = 12, while fewer steps leave out the smallest singular
 values. `lc_steps: K` (5 or 6, with `sv_power: -0.3`) does the same with 3K products (`sv_power_lc`): a weighted
-sum of Newton-Schulz iterates, S^p above 3e-3 (K = 5) or 1e-3 (K = 6) of the Schatten-8 norm, less below.
+sum of Newton-Schulz iterates, S^p above 3e-3 (K = 5) or 1e-3 (K = 6) of the Schatten-8 norm, less below. `lc_steps: 5m`
+(LC5m, 15 products) keeps every output singular value between Muon's and S^p (`scripts/lc/lc5m.py`).
 `log.two_track_check` lists steps at which a run logs the error of that update against the exact one
 (`two_track` records: per Muon matrix, cosine and relative error for K = 5, 8, 12 and LC5, LC6).
 

@@ -72,6 +72,8 @@ def sv_power_two_track(G, p, steps):
 # by scripts/lc/s3_joint.py (scripts/lc/final_coeffs.json, sets p-0.3_lc5_eps3.0e-03, p-0.3_lc6_eps1.0e-03,
 # p-0.3_lc8_eps2.0e-04 and p-0.3_lc12_eps2.0e-06); real momentum matrices were used only to evaluate the sets and
 # pick eps (scripts/lc/check_snippet.py checked the first two on momentum matrices that are not in the repository).
+# (-0.3, '5m'), LC5m: 5 steps whose output lies between Muon's and S^p for every singular value in (0, 1] of the
+# Schatten-8 norm (scripts/lc/lc5m.py, lc5m_coeffs.json): below S^p, above Muon's value for any |G|_S8 / |G|_F.
 LC = {
     (-0.3, 5): (((3.5969, -7.7746, 4.8280), (3.5004, -7.1445, 4.1116), (3.4189, -6.6980, 3.8465),
                  (3.0402, -4.9130, 2.8709), (1.8013, -1.6495, 0.84815)),
@@ -89,6 +91,9 @@ LC = {
                   (2.7248, -3.7049, 1.9801), (2.1957, -3.0101, 1.8144), (3.1917, -5.5021, 2.9403)),
                  (-0.64225, -1.5195, -0.66817, -2.3435, -4.0227, -2.3636, -6.2484, -7.3231, -11.162, -9.2759,
                   13.077, -10.476, 54.037)),
+    (-0.3, '5m'): (((3.213, -5.628, 3.1012), (3.2007, -5.4618, 2.6274), (3.2174, -5.8979, 3.6806),
+                    (2.8932, -4.25, 2.2902), (1.8606, -2.0992, 1.2386)),
+                   (-0.660203352, -1.061696401, -0.4829314639, -0.01733564992, -11.23855637, 14.71319634)),
 }
 LC_FLOAT32 = 8  # from this many steps on, float32 without TF32 (12 steps break in bfloat16, 8 are borderline)
 
@@ -97,10 +102,11 @@ def sv_power_lc(G, p, steps):
     """Approximate U S^p V^T of G (up to a scale) with 3 * steps matrix products, Muon's cost for 5 steps: the weighted
     sum of the iterates of a Newton-Schulz iteration with its own coefficients, started at G / |G|_S8 (Schatten-8 norm,
     from the first squared Gram matrix). Singular values above 3e-3 (5 steps), 1e-3 (6), 2e-4 (8) or 2e-6 (12) of |G|_S8
-    come out as S^p within about +-13% (+-11%, +-5%, +-16%); smaller ones get less. Iterates in bfloat16 as in Muon for
-    5 and 6 steps, in float32 without TF32 for 8 and 12; the sum in float32."""
+    come out as S^p within about +-13% (+-11%, +-5%, +-16%); smaller ones get less. steps = '5m' (LC5m): between
+    Muon's output and S^p for every singular value, S^p within -32%/+7% above 3e-3 (+-26% about a common scale).
+    Iterates in bfloat16 as in Muon for 5 and 6 steps, in float32 without TF32 for 8 and 12; the sum in float32."""
     coeffs, w = LC[p, steps]
-    dt = torch.float32 if steps >= LC_FLOAT32 else torch.bfloat16
+    dt = torch.float32 if len(coeffs) >= LC_FLOAT32 else torch.bfloat16
     tf32 = torch.backends.cuda.matmul.allow_tf32
     torch.backends.cuda.matmul.allow_tf32 = False
     try:

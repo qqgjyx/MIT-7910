@@ -10,7 +10,7 @@ from optsplit import train
 from optsplit.config import load_config, save_config
 from optsplit.models import build_model
 from optsplit.optim import Ghost, build_optimizer, set_lr
-from optsplit.optim.muon import SV_FLOOR, muon_update, sv_power_lc, sv_power_two_track, two_track_errors
+from optsplit.optim.muon import LC, SV_FLOOR, muon_update, sv_power_lc, sv_power_two_track, two_track_errors
 
 TINY = ['model.n_layer=2', 'model.n_embd=16', 'model.n_head=2', 'model.block_size=8']
 
@@ -154,7 +154,7 @@ def test_two_track_errors():
     opt.step()
     rec = two_track_errors(opt)
     n = len(opt.param_groups[0]['params'])
-    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'lc5', 'lc6', 'lc8', 'lc12', 'svd32')}
+    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'lc5', 'lc6', 'lc8', 'lc12', 'lc5m', 'svd32')}
     assert all(len(v) == n for v in rec.values())
     assert all(e == pytest.approx(max(0, 2 - 2 * c) ** 0.5)
                for k in (5, 8, 12) for e, c in zip(rec[f'err_{k}'], rec[f'cos_{k}']))
@@ -185,6 +185,24 @@ def test_lc_power_law_above_the_cutoff(steps, eps, band, low, shape):
     if steps >= 8:
         with torch.autocast('cpu', dtype=torch.bfloat16):  # float32 whatever the autocast
             assert torch.equal(muon_update(grad, torch.zeros(shape), sv_power=-0.3, lc_steps=steps), approx)
+
+
+@pytest.mark.parametrize('shape', [(128, 128), (64, 256), (256, 64)])
+def test_lc5m_is_its_scalar_map_between_muon_and_the_power(shape):
+    """LC5m (lc_steps='5m'): the matrix function is the scalar map g of its coefficients at s / |G|_S8 (bfloat16
+    iterates, cancelling in the sum: within 6% of the largest value), and g lies between Muon's map (its running maximum) and s^p."""
+    steps, w = LC[-0.3, '5m']
+    scalar = lambda s, coeffs: [s := s * (a + b * s ** 2 + c * s ** 4) for a, b, c in coeffs]
+    G, U, S, V = wide_spectrum(shape, low=-6.0)
+    z = ((U.T @ sv_power_lc(G, -0.3, '5m').double()) * V.T).sum(1)
+    s = S / S.pow(8).sum() ** 0.125
+    g = w[0] * s + sum(wk * y for wk, y in zip(w[1:], scalar(s, steps)))
+    assert ((z - g).abs() / g.abs().max()).max() < 0.06
+    s = torch.logspace(-12, 0, 200001, dtype=torch.float64)
+    g = w[0] * s + sum(wk * y for wk, y in zip(w[1:], scalar(s, steps)))
+    muon = torch.cummax(scalar(s, [(3.4445, -4.7750, 2.0315)] * 5)[-1], 0).values
+    lo, hi = torch.minimum(muon, s ** -0.3), torch.maximum(muon, s ** -0.3)
+    assert (g >= lo * (1 - 1e-6)).all() and (g <= hi * (1 + 1e-6)).all()
 
 
 def test_lc_options_reach_the_optimizer():
