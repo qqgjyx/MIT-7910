@@ -544,7 +544,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         log(f'check {r}: {len(X)} points, worst segment {worst.max():.4f} (tol {tol}), {len(bad)} segments out')
         if not len(bad) or r == rounds or len(X) + len(bad) > max_points:
             break
-        if stages and stages[-1]['max_r'] > 2 * tol:
+        lm = [s for s in stages if s['w'] not in ('string', 'shorten')]
+        if lm and lm[-1]['max_r'] > 2 * tol:
             log('no insertion rounds: the points are off the level')
             break
         P = [a, *X, b]
