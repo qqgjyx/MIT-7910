@@ -217,7 +217,7 @@ def main():
                  r"$s^{-0.3}$), was replaced by Gram LC; its runs that had started are shown too.")
 
     tex = rf"""% Written by code/scripts/gram_section.py (scripts/gram_section.sh); edits here are overwritten.
-\paragraph{{Gram LC: an update from the Gram matrix (in progress).}} Gram LC iterates on the Gram matrix $A=XX^\top$ of the normalized momentum $X$, one matrix product per step (each doubling the polynomial degree), sums $S=w_I I+\sum_k w_k A_k$ over the iterates $A_k$ and updates by $SX$. Its weights are fitted so that every singular value in $(0,1]$ lands between Muon's and $s^{{-0.3}}$; in float32 it costs about 0.84 times Muon's FLOPs.{text}
+\paragraph{{Gram LC: an update from the Gram matrix.}} Gram LC iterates on the Gram matrix $A=XX^\top$ of the normalized momentum $X$, one matrix product per step (each doubling the polynomial degree), sums $S=w_I I+\sum_k w_k A_k$ over the iterates $A_k$ and updates by $SX$. Its weights are fitted so that every singular value in $(0,1]$ lands between Muon's and $s^{{-0.3}}$; in float32 it costs about 0.84 times Muon's FLOPs.{text}
 
 \begin{{table}}[H]
 \centering
