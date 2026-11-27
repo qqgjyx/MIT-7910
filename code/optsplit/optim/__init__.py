@@ -16,7 +16,8 @@ def build_optimizer(name, model, cfg):
         hidden, other = muon_params(model)
         groups = [dict(params=[named[n] for n in hidden], lr=o.lr, momentum=o.momentum,
                        weight_decay=o.weight_decay, use_muon=True, orthogonalize=o.get('orthogonalize', True),
-                       sv_power=o.get('sv_power')),
+                       sv_power=o.get('sv_power'), two_track_steps=o.get('two_track_steps'),
+                       lc_steps=o.get('lc_steps'), fast_update=o.get('fast_update', False)),
                   dict(params=[named[n] for n in other], lr=o.adam_lr, betas=tuple(o.adam_betas),
                        eps=o.adam_eps, weight_decay=o.adam_weight_decay, use_muon=False)]
         opt = SingleDeviceMuonWithAuxAdam(groups)

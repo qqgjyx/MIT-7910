@@ -48,6 +48,8 @@ log:
   eval_steps: {every: 100, geometric: 30}
   ckpt_steps: {every: 1000, geometric: 10}
   ckpt_optimizer: false       # also save the optimizer state at the checkpoint steps (opt/<step>.pt)
+  preds: true                 # save the probe's outputs at the eval steps (preds/<step>.pt)
+  two_track_check: []         # steps at which the two-track update is compared with the exact one (optim/muon.py)
   fork_steps: []
   resume_minutes: 15
 

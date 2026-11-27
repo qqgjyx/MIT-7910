@@ -1,0 +1,27 @@
+# Pilot of ts10m_ce_svp and ts10m_ce_tt: does any run diverge at Muon's cross-entropy rate 0.01? The first 500 steps
+# (the learning rate is at its peak after the warmup, as in the first 500 of 10,000 steps), no measurements, no stored
+# outputs: the most extreme powers, the matrix-product methods at p = -0.3, and plain Muon and AdamW. The minibatch
+# losses of the last two (logged every 10 steps, same batches) are compared with ts10m_main/{muon,adamw}_d0, to check
+# that those runs match the current code.
+suite: ts10m_ce_svp_pilot
+base: ../base/tinystories_10m.yaml
+overrides:
+  optimizer: muon
+  optim.muon.lr: 0.01
+  train.data_seed: 0
+  train.max_steps: 500
+  schedule.decay: constant
+  measure.hessian: false
+  measure.delta_loss: false
+  log.preds: false
+  log.eval_steps: {every: 50, geometric: 0}
+  log.ckpt_steps: {every: 0, geometric: 0}
+name: "muon_p{optim.muon.sv_power}_lr{optim.muon.lr}_d{train.data_seed}"
+runs:
+  - {optim.muon.sv_power: [-1.0, -0.75, -0.5, -0.3, 0.75]}
+  - {optim.muon.sv_power: -0.3, optim.muon.two_track_steps: [12, 8, 5],
+     name: "muon_p{optim.muon.sv_power}_k{optim.muon.two_track_steps}_d{train.data_seed}"}
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [12, 8, 6, 5],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
+  - {name: muon_d0}
+  - {optimizer: adamw, name: adamw_d0}

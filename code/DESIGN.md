@@ -28,8 +28,18 @@ the model, from the same initialization, updated by that rule (own state, hyperp
 gradients, so the copy never feeds back. A ghost of the run's own rule reproduces the run. Checkpoints go to
 `<name>__ghost_<rule>/` (its `config.yaml` has `optimizer: <rule>` and `ghost_of`), at the run's `log.ckpt_steps`. Not
 with forks. `optim.muon.orthogonalize: false` (Nesterov momentum rescaled to the Frobenius norm of an orthogonal update) and
-`sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former)
-are Muon ablations.
+`sv_power: p` (U S^p V^T from an exact SVD of the momentum, same rescaling; p=0 exact orthogonalization, p=1 the former;
+for p<0 the singular values are first divided by the largest and those below 1e-6 raised to 1e-6, so S^p stays finite)
+are Muon ablations. `two_track_steps: K` (with `sv_power` -0.3 or -0.5) replaces the SVD by 4K-1 matrix products
+(`sv_power_two_track` in `optim/muon.py`): exact enough for K = 12, while fewer steps leave out the smallest singular
+values. `lc_steps: K` (5 or 6, with `sv_power: -0.3`) does the same with 3K products (`sv_power_lc`): a weighted
+sum of Newton-Schulz iterates, S^p above 3e-3 (K = 5) or 1e-3 (K = 6) of the Schatten-8 norm, less below. `lc_steps: 5m`
+(LC5m, 15 products) keeps every output singular value between Muon's and S^p (`scripts/lc/lc5m.py`). `lc_steps: gram`
+(Gram LC, `sv_power_gram`, `scripts/lc/gram_lc.py`) does the same from a polynomial of the Gram matrix X X^T, applied to
+X once: 17 small-side and 2 rectangular products (0.84 of Muon's FLOPs for the 14M GPT), float32, S^p down to about
+1e-4 of the Schatten-8 norm instead of 3e-3.
+`log.two_track_check` lists steps at which a run logs the error of that update against the exact one
+(`two_track` records: per Muon matrix, cosine and relative error for K = 5, 8, 12 and LC5, LC6).
 
 `train.loss` is `ce` (default) or `mse`: the squared error between the outputs z (the logits, no softmax) and the
 one-hot target, summed over the classes and averaged over tokens (Cohen et al. 2021). It is the loss everywhere:

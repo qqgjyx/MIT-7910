@@ -1,0 +1,29 @@
+# ts10m_mse_svp with the cross-entropy loss: Muon with the update U S^p V^T (optim.muon.sv_power, exact SVD of the
+# Nesterov momentum, rescaled to an orthogonal update's Frobenius norm), p from -1 to 0.75. For p < 0, relative singular
+# values below 1e-6 are raised to 1e-6 first (optim/muon.py SV_FLOOR). Settings of ts10m_main: Muon's rate 0.01 (its
+# best in ts10m_lrsweep) and half of it, data order 0. References: ts10m_main/{muon,adamw}_d0 and, at rate 0.005,
+# ts10m_lrsweep/muon_lr0.005. The p >= 0 runs repeat ts10m_svp (run on FAS Cannon) here on ORCD.
+# Robustness: p = -0.3 also on data orders 1 and 2 (against ts10m_main/muon_d1, d2); these three runs log the error of
+# the float32 SVD against a float64 one at the log.two_track_check steps (the matrix-product methods: ts10m_ce_tt).
+# Plain Muon and AdamW are not rerun: in the pilot (ts10m_ce_svp_pilot, on L40S like ts10m_main) their losses equal those
+# of ts10m_main/{muon,adamw}_d0 bit for bit up to the end of the warmup, where the pilot's schedule starts to differ.
+# Kept small: no Hessian measurements, no optimizer state, checkpoints every 1000 steps. The rate-0.01 runs also store
+# the probe's predictions (JS to Muon, trajectory figure) and checkpoints at 600, 800, 1250 and 1500 (stable rank at
+# training loss 1.81, the grid of ts10m_svp there).
+suite: ts10m_ce_svp
+base: ../base/tinystories_10m.yaml
+overrides:
+  optimizer: muon
+  measure.hessian: false
+  measure.delta_loss: false
+  log.ckpt_optimizer: false
+  log.preds: false
+  log.ckpt_steps: {every: 1000, geometric: 0}
+name: "muon_p{optim.muon.sv_power}_lr{optim.muon.lr}_d{train.data_seed}"
+runs:
+  - {optim.muon.lr: 0.01, optim.muon.sv_power: [-1.0, -0.75, -0.5, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0,
+     log.preds: true, log.ckpt_steps: {every: 1000, geometric: 0, extra: [600, 800, 1250, 1500]}}
+  - {optim.muon.lr: 0.01, optim.muon.sv_power: -0.3, train.data_seed: [0, 1, 2],
+     log.preds: true, log.ckpt_steps: {every: 1000, geometric: 0, extra: [600, 800, 1250, 1500]},
+     log.two_track_check: [[10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]]}
+  - {optim.muon.lr: 0.005, optim.muon.sv_power: [-1.0, -0.75, -0.5, -0.3, -0.1, 0.0, 0.25, 0.5, 0.75], train.data_seed: 0}

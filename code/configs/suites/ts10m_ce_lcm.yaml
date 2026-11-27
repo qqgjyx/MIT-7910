@@ -1,0 +1,20 @@
+# LC5m: the LC runs of ts10m_ce_tt at p = -0.3 and Muon's rate 0.01 with the coefficient set lc_steps = 5m (5 steps,
+# 15 matrix products, Muon's cost; scripts/lc/lc5m.py), whose output singular values lie between Muon's and s^p for
+# every s in (0, 1]. Same evaluation and logging as ts10m_ce_tt; data orders 0-4. The update in batches of
+# same-shaped matrices (optim.muon.fast_update). Checkpoints only for resuming (latest.pt) and the final step.
+suite: ts10m_ce_lcm
+base: ../base/tinystories_10m.yaml
+overrides:
+  optimizer: muon
+  optim.muon.lr: 0.01
+  optim.muon.sv_power: -0.3
+  optim.muon.fast_update: true
+  measure.hessian: false
+  measure.delta_loss: false
+  log.preds: false
+  log.ckpt_optimizer: false
+  log.ckpt_steps: {every: 0, geometric: 0}
+  log.two_track_check: [10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]
+runs:
+  - {optim.muon.lc_steps: 5m, train.data_seed: [0, 1, 2, 3, 4],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}

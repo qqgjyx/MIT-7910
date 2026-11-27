@@ -1,0 +1,20 @@
+# Gram LC: ts10m_ce_lcm with lc_steps = gram instead of 5m: the update from a polynomial of the Gram matrix of the momentum
+# (optim/muon.py sv_power_gram; scripts/lc/gram_lc.py), 17 products on the small side plus 2 rectangular ones (0.84 of
+# Muon's FLOPs for this model), in float32; output singular values between Muon's and s^p for every s in (0, 1] like
+# LC5m, and s^p down to about 1e-4 of the Schatten-8 norm instead of 3e-3. Same evaluation and logging as ts10m_ce_lcm.
+suite: ts10m_ce_gram
+base: ../base/tinystories_10m.yaml
+overrides:
+  optimizer: muon
+  optim.muon.lr: 0.01
+  optim.muon.sv_power: -0.3
+  optim.muon.fast_update: true
+  measure.hessian: false
+  measure.delta_loss: false
+  log.preds: false
+  log.ckpt_optimizer: false
+  log.ckpt_steps: {every: 0, geometric: 0}
+  log.two_track_check: [10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]
+runs:
+  - {optim.muon.lc_steps: gram, train.data_seed: [0, 1, 2, 3, 4],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}

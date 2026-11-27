@@ -1,0 +1,35 @@
+# Two-track Newton-Schulz against the exact SVD (ts10m_mse_svp): Muon with the update U S^p V^T computed by 4K-1 matrix
+# products (optim.muon.two_track_steps = K, optim/muon.py) instead of an SVD. MSE loss, Muon's MSE rate 0.005.
+# K = 12 follows S^p down to relative singular values of 1e-6, K = 8 down to 2e-4 and K = 5 down to 8e-3: does the
+# gain of p = -0.3 over plain Muon need the smallest singular values? Three data orders, since the gain (0.002 to 0.005
+# in the final validation loss) is of the size of the spread over data orders. References: ts10m_mse_svp (exact
+# p = -0.3 on d0-d2, p = 0 and p = -0.5 on d0) and ts10m_mse_main/muon_d0-d2.
+# Kept small: no Hessian measurements, no stored outputs, no optimizer state, checkpoints every 1000 steps only. At the
+# log.two_track_check steps a run logs the error of the update for K = 5, 8, 12 against the exact one on its own momentum.
+suite: ts10m_mse_tt
+base: ../base/tinystories_10m.yaml
+overrides:
+  train.loss: mse
+  optimizer: muon
+  optim.muon.lr: 0.005
+  measure.hessian: false
+  measure.delta_loss: false
+  log.preds: false
+  log.ckpt_optimizer: false
+  log.ckpt_steps: {every: 1000, geometric: 0}
+  log.two_track_check: [10, 100, 300, 1000, 2000, 3000, 5000, 7000, 9000]
+name: "muon_p{optim.muon.sv_power}_k{optim.muon.two_track_steps}_d{train.data_seed}"
+runs:
+  - {optim.muon.sv_power: -0.3, optim.muon.two_track_steps: [12, 8, 5], train.data_seed: 0}
+  - {optim.muon.sv_power: -0.5, optim.muon.two_track_steps: 12, train.data_seed: 0}
+  - {optim.muon.sv_power: -0.3, optim.muon.two_track_steps: [12, 8, 5], train.data_seed: [1, 2]}
+# Added: LC (optim.muon.lc_steps, a weighted sum of Newton-Schulz iterates with 15 or 18 products, Muon's cost or 20% more),
+# which follows S^p only above 3e-3 or 1e-3 of the Schatten-8 norm. Does the tilt alone give the gain?
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [5, 6], train.data_seed: 0,
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [5, 6], train.data_seed: [1, 2],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}
+# Added: LC with 8 and 12 steps (24 and 36 products, float32), which follow S^p down to 2e-4 and 2e-6 of the Schatten-8
+# norm: the reach of two-track K = 8 and K = 12 at fewer products.
+  - {optim.muon.sv_power: -0.3, optim.muon.lc_steps: [12, 8], train.data_seed: [0, 1, 2],
+     name: "muon_p{optim.muon.sv_power}_lc{optim.muon.lc_steps}_d{train.data_seed}"}

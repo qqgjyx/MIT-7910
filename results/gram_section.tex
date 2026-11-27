@@ -1,0 +1,26 @@
+% Written by code/scripts/gram_section.py (scripts/gram_section.sh); edits here are overwritten.
+\paragraph{Gram LC: an update from the Gram matrix.} Gram LC iterates on the Gram matrix $A=XX^\top$ of the normalized momentum $X$, one matrix product per step (each doubling the polynomial degree), sums $S=w_I I+\sum_k w_k A_k$ over the iterates $A_k$ and updates by $SX$. Its weights are fitted so that every singular value in $(0,1]$ lands between Muon's and $s^{-0.3}$; in float32 it costs about 0.84 times Muon's FLOPs. \Cref{fig:lc} shows its mean curves.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Gram LC against the other methods, one row per data order; exact: exact SVD at $p=-0.3$. running, queued: not finished, not started; pending: no timing yet; --: not run; mean: over the $n$ data orders each method has finished.}
+\label{tab:gram}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{l ccccc ccccc}
+\toprule
+ & \multicolumn{5}{c}{final val.\ loss} & \multicolumn{5}{c}{GPU min.\ to 1.3391} \\
+\cmidrule(lr){2-6}\cmidrule(lr){7-11}
+order & Gram & Muon & LC5 & exact & AdamW & Gram & Muon & LC5 & exact & AdamW \\
+\midrule
+d0 & 1.3056 & 1.3049 & 1.3108 & 1.3002 & 1.3391 & 14.9 & 13.7 & 14.5 & 131.8 & 17.9 \\
+d1 & 1.3052 & 1.3070 & 1.3092 & 1.3055 & 1.3462 & 14.5 & 13.8 & 14.2 & 133.9 & never \\
+d2 & 1.3073 & 1.3138 & 1.3126 & 1.3023 & 1.3446 & 14.6 & 14.1 & 14.4 & 132.6 & never \\
+d3 & 1.3023 & 1.3084 & 1.3110 & -- & 1.3496 & 14.6 & 13.9 & 14.5 & -- & never \\
+d4 & 1.3077 & 1.3090 & 1.3074 & -- & 1.3403 & 15.2 & 14.2 & 14.2 & -- & never \\
+\midrule
+mean & 1.3056 & 1.3086 & 1.3102 & 1.3027 & 1.3440 & 14.7 & 13.9 & 14.4 & 132.8 & -- \\
+$n$ & 5 & 5 & 5 & 3 & 5 & 5 & 5 & 5 & 3 & 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
