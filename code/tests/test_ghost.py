@@ -10,7 +10,8 @@ from optsplit import train
 from optsplit.config import load_config, save_config
 from optsplit.models import build_model
 from optsplit.optim import Ghost, build_optimizer, set_lr
-from optsplit.optim.muon import LC, SV_FLOOR, muon_update, sv_power_lc, sv_power_two_track, two_track_errors
+from optsplit.optim.muon import (GRAM, LC, SV_FLOOR, muon_update, sv_power_gram, sv_power_lc, sv_power_two_track,
+                                 two_track_errors)
 
 TINY = ['model.n_layer=2', 'model.n_embd=16', 'model.n_head=2', 'model.block_size=8']
 
@@ -154,7 +155,8 @@ def test_two_track_errors():
     opt.step()
     rec = two_track_errors(opt)
     n = len(opt.param_groups[0]['params'])
-    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos') for k in (5, 8, 12, 'lc5', 'lc6', 'lc8', 'lc12', 'lc5m', 'svd32')}
+    assert set(rec) == {f'{kind}_{k}' for kind in ('err', 'cos')
+                        for k in (5, 8, 12, 'lc5', 'lc6', 'lc8', 'lc12', 'lc5m', 'lcgram', 'svd32')}
     assert all(len(v) == n for v in rec.values())
     assert all(e == pytest.approx(max(0, 2 - 2 * c) ** 0.5)
                for k in (5, 8, 12) for e, c in zip(rec[f'err_{k}'], rec[f'cos_{k}']))
@@ -205,9 +207,36 @@ def test_lc5m_is_its_scalar_map_between_muon_and_the_power(shape):
     assert (g >= lo * (1 - 1e-6)).all() and (g <= hi * (1 + 1e-6)).all()
 
 
+@pytest.mark.parametrize('shape', [(128, 128), (64, 256), (256, 64)])
+def test_gram_lc_is_its_scalar_map_between_muon_and_the_power(shape):
+    """Gram LC (lc_steps='gram'): the matrix function is the scalar map f(s) = s (w_I + sum_k w_k c_k(s^2 + d)) at
+    s / |G|_S8 (float32: within 1% wherever s >= 1e-3), and f lies between Muon's map (its running maximum) and s^p."""
+    steps, w, d = GRAM[-0.3]
+
+    def f(s):
+        c = [s * s + d]
+        for a, b in steps:
+            c.append(a * c[-1] + b * c[-1] ** 2)
+        return s * (w[0] + sum(wk * ck for wk, ck in zip(w[1:], c)))
+
+    G, U, S, V = wide_spectrum(shape, low=-6.0)
+    z = ((U.T @ sv_power_gram(G, -0.3).double()) * V.T).sum(1)
+    s = S / S.pow(8).sum() ** 0.125
+    assert ((z - f(s)).abs() / f(s))[s >= 1e-3].max() < 0.01
+    update = muon_update(G, torch.zeros(shape), sv_power=-0.3, lc_steps='gram')
+    assert update.dtype == torch.float32 and update.shape == shape
+    s = torch.logspace(-12, 0, 200001, dtype=torch.float64)
+    scalar = lambda s, coeffs: [s := s * (a + b * s ** 2 + c * s ** 4) for a, b, c in coeffs]
+    muon = torch.cummax(scalar(s, [(3.4445, -4.7750, 2.0315)] * 5)[-1], 0).values
+    lo, hi = torch.minimum(muon, s ** -0.3), torch.maximum(muon, s ** -0.3)
+    assert (f(s) >= lo * (1 - 1e-6)).all() and (f(s) <= hi * (1 + 1e-6)).all()
+
+
 def test_lc_options_reach_the_optimizer():
     power = ['optim.muon.sv_power=-0.3']
     assert differ(run('muon', '[]', extra=power)[0], run('muon', '[]', extra=power + ['optim.muon.lc_steps=5'])[0])
+    assert differ(run('muon', '[]', extra=power + ['optim.muon.lc_steps=5'])[0],
+                  run('muon', '[]', extra=power + ['optim.muon.lc_steps=gram'])[0])
     with pytest.raises(AssertionError):  # coefficients for p = -0.3 with 5, 6, 8 or 12 steps only
         run('muon', '[]', extra=['optim.muon.sv_power=-0.3', 'optim.muon.lc_steps=4'])
 

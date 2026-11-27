@@ -34,7 +34,10 @@ are Muon ablations. `two_track_steps: K` (with `sv_power` -0.3 or -0.5) replaces
 (`sv_power_two_track` in `optim/muon.py`): exact enough for K = 12, while fewer steps leave out the smallest singular
 values. `lc_steps: K` (5 or 6, with `sv_power: -0.3`) does the same with 3K products (`sv_power_lc`): a weighted
 sum of Newton-Schulz iterates, S^p above 3e-3 (K = 5) or 1e-3 (K = 6) of the Schatten-8 norm, less below. `lc_steps: 5m`
-(LC5m, 15 products) keeps every output singular value between Muon's and S^p (`scripts/lc/lc5m.py`).
+(LC5m, 15 products) keeps every output singular value between Muon's and S^p (`scripts/lc/lc5m.py`). `lc_steps: gram`
+(Gram LC, `sv_power_gram`, `scripts/lc/gram_lc.py`) does the same from a polynomial of the Gram matrix X X^T, applied to
+X once: 17 small-side and 2 rectangular products (0.84 of Muon's FLOPs for the 14M GPT), float32, S^p down to about
+1e-4 of the Schatten-8 norm instead of 3e-3.
 `log.two_track_check` lists steps at which a run logs the error of that update against the exact one
 (`two_track` records: per Muon matrix, cosine and relative error for K = 5, 8, 12 and LC5, LC6).
 

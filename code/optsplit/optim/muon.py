@@ -131,6 +131,60 @@ def sv_power_lc(G, p, steps):
     return out.mT if G.size(-2) > G.size(-1) else out
 
 
+# Gram LC (lc_steps='gram'): for p, the steps (a_k, b_k) of C_{k+1} = a_k C_k + b_k C_k^2 from C_0 = X X^T + d I, the
+# weights (w_I, w_0, ..., w_P) of I, C_0, ..., C_P, and the shift d. Fitted by scripts/lc/gram_lc.py (key 'gram' of
+# gram_lc_coeffs.json) with LC5m's constraint and objective; d keeps the eigenvalues of C_0 >= 0 although rounding
+# makes the smallest ones of X X^T negative (down to -1e-8 of |X|_S8^2 in float32 on momentum matrices).
+GRAM = {  # gram17_d1e-07_w200000: 17 Gram products, shift d = 1e-07, sum |w| <= 200000
+    -0.3: (((2.5029, -1.6889), (2.4877, -1.7244), (2.7169, -1.8982), (2.5064, -1.5952), (2.6911, -1.76),
+            (2.5794, -1.6316), (2.5988, -1.6618), (2.5822, -1.6527), (2.5833, -1.6634), (2.5808, -1.6645),
+            (2.5809, -1.6655), (2.5808, -1.6653), (2.5809, -1.6652), (2.5809, -1.6652), (2.5809, -1.6652),
+            (2.5809, -1.6652), (2.5809, -1.6652)),
+           (97404.4890725, -1.10650818775, -1.68647493358, -3.12727244465, -4.96761463725, -10.2803853533,
+            -18.2127242428, -34.682214254, -64.1442449353, -120.799160961, -222.640602125, -413.090917464,
+            -765.844279606, -1431.45413679, -2711.80090173, -5397.43462811, -12509.8581428, -37084.5107237,
+            -41799.8699952), 1e-07),
+}
+GRAM_DTYPE = 'float32'  # products in float32 without TF32 ('bfloat16' and 'tf32' for scripts/lc/gram_lc_check.py)
+
+
+def sv_power_gram(G, p):
+    """Approximate U S^p V^T of G (up to a scale) from a polynomial of the Gram matrix: X = G / |G|_S8 (m x n, m <= n),
+    S = w_I I + sum_k w_k C_k with C_0 = X X^T + d I, C_{k+1} = a_k C_k + b_k C_k^2, output S X; singular values
+    s (w_I + sum_k w_k c_k(s^2 + d)) at s = sigma / |G|_S8, between Muon's output and S^p for every s in (0, 1].
+    2 m x m x n and P m x m x m products (P = len(steps) = 17: 0.84 of Muon's FLOPs for the 14M GPT's shapes). S spans
+    1 to the slope at 0 (5.5e4) and cancels w_I against the iterates for large s, and the iteration diverges on negative
+    eigenvalues: float32 without TF32 throughout, S accumulated in float32 (GRAM_DTYPE: bfloat16 or TF32 for checks)."""
+    steps, w, d = GRAM[p]
+    dt = torch.bfloat16 if GRAM_DTYPE == 'bfloat16' else torch.float32
+    tf32 = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = GRAM_DTYPE == 'tf32'
+    try:
+        with torch.autocast(G.device.type, enabled=False):
+            X = G.to(dt)
+            if G.size(-2) > G.size(-1):
+                X = X.mT
+            X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+            A = X @ X.mT
+            A2 = A @ A
+            s2 = A2.float().norm(dim=(-2, -1), keepdim=True) ** 0.5  # |X|_S8^2
+            A, A2 = A.float() / s2, A2.float() / s2 ** 2
+            C, C2 = A + 0, A2 + 2 * d * A  # C_0 = A + d I and C_0^2 = A2 + 2 d A + d^2 I
+            C.diagonal(dim1=-2, dim2=-1).add_(d)
+            C2.diagonal(dim1=-2, dim2=-1).add_(d * d)
+            S = w[1] * C
+            S.diagonal(dim1=-2, dim2=-1).add_(w[0])
+            C = (steps[0][0] * C + steps[0][1] * C2).to(dt)
+            S = S + w[2] * C.float()
+            for (a, b), wk in zip(steps[1:], w[3:]):
+                C = a * C + b * (C @ C)
+                S = S + wk * C.float()
+            out = (S.to(dt) @ X).float() / s2 ** 0.5
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = tf32
+    return out.mT if G.size(-2) > G.size(-1) else out
+
+
 def sv_power_exact(G, p):
     """U S^p V^T of G (p = 0: exact orthogonalization); for p < 0 with relative singular values, floored at SV_FLOOR."""
     U, S, Vh = torch.linalg.svd(G, full_matrices=False)
@@ -157,6 +211,8 @@ def muon_direction(update, ns_steps=5, orthogonalize=True, sv_power=None, two_tr
     else:  # ablations, rescaled to the Frobenius norm of an orthogonal update, sqrt(min(n_out, n_in))
         if two_track_steps:  # U S^p V^T of the momentum by matrix products
             update = sv_power_two_track(update, sv_power, two_track_steps)
+        elif lc_steps == 'gram':
+            update = sv_power_gram(update, sv_power)
         elif lc_steps:
             update = sv_power_lc(update, sv_power, lc_steps)
         elif sv_power is not None:  # the same by an exact SVD
@@ -211,7 +267,8 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                 group["lc_steps"] = group.get("lc_steps", None)
                 group["fast_update"] = group.get("fast_update", False)
                 assert not group["two_track_steps"] or group["sv_power"] in TWO_TRACK, "two-track: no coefficients"
-                assert not group["lc_steps"] or (group["sv_power"], group["lc_steps"]) in LC, "LC: no coefficients"
+                assert not group["lc_steps"] or (group["sv_power"], group["lc_steps"]) in LC or \
+                    (group["lc_steps"] == 'gram' and group["sv_power"] in GRAM), "LC: no coefficients"
                 assert not group["fast_update"] or group["sv_power"] is None or group["two_track_steps"] or \
                     group["lc_steps"], "fast_update: not with the exact SVD"
                 assert set(group.keys()) == set(["params", "lr", "momentum", "weight_decay", "use_muon",
@@ -273,7 +330,8 @@ def two_track_errors(opt, steps=(5, 8, 12)):
     zero_grad): per matrix and number of steps, the cosine with the exact update and the relative error
     |Z - E|_F / |E|_F after rescaling both to the same norm (so error^2 = 2 - 2 cosine). `lc5` ... `lc12`: the LC update
     (p = -0.3 only); `svd32`: the float32 SVD of the exact method, for scale."""
-    lc = [k for (q, k) in LC if q == opt.param_groups[0]["sv_power"]]
+    p0 = opt.param_groups[0]["sv_power"]
+    lc = [k for (q, k) in LC if q == p0] + ['gram'] * (p0 in GRAM)
     out = {f'{kind}_{k}': [] for k in (*steps, *(f'lc{k}' for k in lc), 'svd32') for kind in ('err', 'cos')}
     for group in opt.param_groups:
         if not group["use_muon"]:
@@ -283,7 +341,7 @@ def two_track_errors(opt, steps=(5, 8, 12)):
             N = param.grad.lerp(opt.state[param]["momentum_buffer"], group["momentum"]).float()
             exact = sv_power_exact(N.double(), p)
             approx = {k: sv_power_two_track(N, p, k) for k in steps}
-            approx.update({f'lc{k}': sv_power_lc(N, p, k) for k in lc})
+            approx.update({f'lc{k}': sv_power_gram(N, p) if k == 'gram' else sv_power_lc(N, p, k) for k in lc})
             approx['svd32'] = sv_power_exact(N, p)
             for k, Z in approx.items():
                 cos = ((Z.double() * exact).sum() / (Z.double().norm() * exact.norm())).item()

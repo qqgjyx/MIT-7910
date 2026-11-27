@@ -13,6 +13,8 @@
 #   SUITE=ts10m_ce_adamw_pilot LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon adamw
 # LC5m (ts10m_ce_lcm_pilot), timed beside Muon and LC5:
 #   SUITE=ts10m_ce_lcm_pilot LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon lc5 lc5m
+# Gram LC (ts10m_ce_gram_pilot), timed beside Muon, both with the fast path (also the smoke run of Gram LC):
+#   SUITE=ts10m_ce_gram_pilot LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon_fast gram_fast
 # optim.muon.fast_update (ts10m_ce_speed; a 200-step smoke run with STEPS=200, ts10m_ce_speed_smoke):
 #   SUITE=ts10m_ce_speed LOSS=ce LR=0.01 sbatch slurm/cmd.sbatch bash scripts/two_track_pilot.sh muon muon_fast lc5 \
 #       lc5_fast adamw
@@ -38,7 +40,8 @@ declare -A opts=([muon]="" [tt5]="$check optim.muon.two_track_steps=5" [tt8]="$c
     [lc5m]="$check optim.muon.lc_steps=5m" [lc6]="$check optim.muon.lc_steps=6" [lc8]="$check optim.muon.lc_steps=8" [lc12]="$check optim.muon.lc_steps=12"
     [svd_p-0.3]="$check" [svd_p0]="optim.muon.sv_power=0" [adamw]="optimizer=adamw"
     [muon_fast]="optim.muon.fast_update=true" [lc5_fast]="$check optim.muon.lc_steps=5 optim.muon.fast_update=true"
-    [lc5m_fast]="$check optim.muon.lc_steps=5m optim.muon.fast_update=true")
+    [lc5m_fast]="$check optim.muon.lc_steps=5m optim.muon.fast_update=true"
+    [gram_fast]="$check optim.muon.lc_steps=gram optim.muon.fast_update=true")
 nvidia-smi --query-gpu=name --format=csv,noheader
 methods=("$@")
 [ $# -gt 0 ] || methods=(muon tt5 tt8 tt12 svd_p-0.3 svd_p0)
