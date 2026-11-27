@@ -37,7 +37,7 @@
 \begin{table}[H]
 \centering
 \small
-\caption{Muon with singular values raised to $p$, data order 0. Column 2: the first step at which the training loss reaches 1.81 (the level of our earlier table for $p\ge0$), at rate 0.01. Columns 3--4 at that step: stable rank ($\|W\|_F^2/\sigma_1^2$) and $\sigma_1/\sigma_{\mathrm{median}}$, means over the 36 weight matrices. Column 5: for the rate-0.01 runs, the first step at which the validation loss reaches AdamW's final loss, 1.3391. Columns 6--7: GPU minutes until the validation loss first reaches 1.3391, at either rate: the step there (linear between evaluations) times the method's unrounded time per step (\cref{fig:gputime}); never: not within the 10{,}000 steps; $^*$: AdamW's time per step is a stand-in, Muon's (\cref{fig:gputime}). Not run: $p>0$ at rate 0.005, since the minimum at that rate is already bracketed at $p\le0$.}
+\caption{Muon with singular values raised to $p$, data order 0. Column 2: the first step at which the training loss reaches 1.81 (the level of our earlier table for $p\ge0$), at rate 0.01. Columns 3--4 at that step: stable rank ($\|W\|_F^2/\sigma_1^2$) and $\sigma_1/\sigma_{\mathrm{median}}$, means over the 36 weight matrices. Column 5: for the rate-0.01 runs, the first step at which the validation loss reaches AdamW's final loss, 1.3391. Columns 6--7: GPU minutes until the validation loss first reaches 1.3391, at either rate: the step there (linear between evaluations) times the method's unrounded time per step (\cref{fig:gputime}); never: not within the 10{,}000 steps. Not run: $p>0$ at rate 0.005, since the minimum at that rate is already bracketed at $p\le0$.}
 \label{tab:negp}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{l cccc cc cc}
@@ -57,7 +57,7 @@ $p=0.75$  & 1432 & 32.9 & 9.06  & not reached & never & not run & 1.3601 & not r
 \midrule
 Muon (Newton--Schulz) & 868 & 86.5 & 2.68 & 7474 & \textbf{14.6} & \textbf{15.1} & 1.3049 & 1.3077 \\
 LC12 (\cref{tab:lc}) & 938 & -- & -- & 7366 & 19.5 & -- & 1.3006 & -- \\
-AdamW (rate 0.002) & 1438 & 32.9 & 7.95 & 10000 & 19.5$^*$ & -- & 1.3391 & -- \\
+AdamW (rate 0.002) & 1438 & 32.9 & 7.95 & 10000 & 17.9 & -- & 1.3391 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -113,7 +113,7 @@ Muon (Newton--Schulz) & 15 & 117 & -- & 1.3049 & 1.3070 & 1.3138 & 1.3086 & \tex
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{ts10m/gpu_time_val_ce.pdf}
-\caption{Validation loss against GPU time, rate 0.01 (AdamW 0.002), data order 0. GPU time = step $\times$ the method's time per step, measured in short timing jobs on one L40S (400 steps, without the Hessian and other measurements made during the long runs; the time per step of one run while a second identical run shares the GPU): Muon 117, LC5/6/8/12 123/126/142/159 and exact SVD 1081 ms per step (timed at $p=-0.3$, used for every $p$). AdamW has not been timed this way yet; it is set to Muon's 117 ms as a stand-in (an earlier, less controlled pilot gave AdamW 108 and Muon 118 ms). The logged wall-clock is not used: the long runs shared GPUs, and some of them measured the Hessian. Horizontal line: AdamW's final loss, 1.3391, the level of the columns ``GPU min.\ to 1.3391'' of \cref{tab:negp,tab:lc}. (a) The whole run, loss axis logarithmic in (loss $-$ 1). (b) 10 to 27 minutes, linear axis capped at AdamW's loss at 10 minutes; the exact-SVD runs are still above it.}
+\caption{Validation loss against GPU time, rate 0.01 (AdamW 0.002), data order 0. GPU time = step $\times$ the method's time per step, measured in short timing jobs on one L40S (400 steps, without the Hessian and other measurements made during the long runs; the time per step of one run while a second identical run shares the GPU): Muon 117, LC5/6/8/12 123/126/142/159 and exact SVD 1081 ms per step (timed at $p=-0.3$, used for every $p$). AdamW: 107 ms per step, timed the same way in a second job (an earlier pilot gave 108 ms). The logged wall-clock is not used: the long runs shared GPUs, and some of them measured the Hessian. Horizontal line: AdamW's final loss, 1.3391, the level of the columns ``GPU min.\ to 1.3391'' of \cref{tab:negp,tab:lc}. (a) The whole run, loss axis logarithmic in (loss $-$ 1). (b) 10 to 27 minutes, linear axis capped at AdamW's loss at 10 minutes; the exact-SVD runs are still above it.}
 \label{fig:gputime}
 \end{figure}
 
