@@ -9,9 +9,9 @@
 \label{tab:app-shared}
 \begin{tabular}{@{}lp{0.74\linewidth}@{}}
 \hline
-Runs & 13: AdamW and Muon on data orders d0--d4 (those of the CE report), smoothed Muon on d0--d2. As in the CE
-  report, Step 2 adds 6 AdamW and Muon runs on d0--d2 that differ only in the saved models (\cref{app:metrics}); the
-  smoothed-Muon runs serve both Step 1 and Step 2 \\
+Runs & 15: AdamW, Muon and smoothed Muon on data orders d0--d4 (AdamW and Muon: those of the CE report). As in
+  the CE report, Step 2 reruns AdamW and Muon on d0--d2 (6 runs), identical except that they save the
+  checkpoints of \cref{app:metrics}; the smoothed-Muon runs on d0--d2 serve both Step 1 and Step 2. Swaps: \cref{app:forks} \\
 \hline
 Model & nanoGPT, pre-LayerNorm blocks \\
 Layers, heads, width & 6, 6, 384 \\
@@ -64,7 +64,7 @@ Smoothed Muon differs from Muon in the rows ``Step'' and ``$\eta$ choice'' only.
 \hline
 $\eta$ & $2\cdot10^{-3}$ & 0.01 & 0.01 \tabularnewline
 $\eta$ choice & \raggedright best final validation loss of a 5-rate sweep on d0 & as AdamW &
-  Muon's \tabularnewline
+  \raggedright Muon's (the best of a 5-rate sweep on d0 is 0.005; \cref{app:calib}) \tabularnewline
 Update $O_t$ & bias-corrected moments & \raggedright Nesterov momentum; 5 quintic Newton--Schulz steps in bfloat16 &
   as Muon \tabularnewline
 Step & $-\eta\,O_t$ & $-\eta\,O_t$ & \raggedright $-\eta\,U_t/(1-(1-a)^t)$, $U_t=(1-a)U_{t-1}+aO_t$, $a=0.65$
@@ -87,16 +87,36 @@ Aux.\ weight decay & -- & none & none \tabularnewline
 \label{app:calib}
 
 We chose $a$ from short runs on data order 0 at Muon's learning rate, $\eta=0.01$: as in \cref{tab:app-shared}, but
-without Hessian measurements and stopped at step 2002 (the learning-rate schedule is that of 10{,}000 steps). The cosine
+without Hessian measurements and stopped at step 2002, so that the cosine can be measured at $t=2000$ (the learning-rate schedule is that of 10{,}000 steps). The cosine
 between consecutive updates, $\cos(\Delta\theta_t,\Delta\theta_{t+1})$ with $\Delta\theta_t=\theta_{t+1}-\theta_t$,
 comes from checkpoints at $t,t+1,t+2$, for eight values of $t$ from 400 to 2000. \Cref{tab:calib} gives it at training
-loss 1.81, interpolated between the checkpoints at steps 800 and 1000, where every short run passes that loss. It barely
-changes over these steps: for each $a<1$, its eight values lie within 0.008 of each other (Muon: 0.731 to 0.749).
+loss 1.81, interpolated between the checkpoints at steps 800 and 1000, where every short run passes that loss. From step
+400 to 2000 the cosine barely changes: for each $a<1$, its eight values lie within 0.008 of each other (Muon, $a=1$:
+0.731 to 0.749).
 
 \Cref{tab:calib} also gives the cosine for the 36 weight matrices of the blocks alone. These are the only parameters
 whose update rule differs between Muon and smoothed Muon; AdamW trains the others under all three optimizers. With
 $a=0.65$ the block matrices also match AdamW (0.877 against 0.876). The run with $a=1$ repeats Muon's run exactly: its
 validation loss at step 2000 is Muon's, 1.5878.
+
+\emph{Learning rate.} \Cref{tab:app-lr} gives full runs of smoothed Muon ($a=0.65$) on data order 0 at five learning
+rates. The best is $\eta=0.005$, inside the range swept. We keep Muon's $\eta=0.01$, so that smoothed Muon differs from
+Muon in the averaging alone. At every rate, the cosine at loss 1.81 stays within 0.02 of AdamW's (0.881).
+
+\begin{center}\small
+\captionsetup{type=table}
+\caption{Learning rate of smoothed Muon ($a=0.65$, data order 0): final validation loss and cosine between
+consecutive updates at training loss 1.81. Last row: Muon's own sweep, from the CE report (its fifth rate, 0.08, is not shown).}
+\label{tab:app-lr}
+\begin{tabular}{@{}l|ccccc@{}}
+$\eta$ & 0.0025 & 0.005 & 0.01 & 0.02 & 0.04 \\
+\hline
+final validation loss & 1.331 & \textbf{1.309} & 1.315 & 1.315 & 1.326 \\
+cosine at training loss 1.81 & 0.899 & 0.890 & 0.883 & 0.879 & 0.881 \\
+\hline
+Muon, final validation loss & -- & 1.308 & \textbf{1.305} & 1.314 & 1.320 \\
+\end{tabular}
+\end{center}
 
 \section{Metrics}
 \label{app:metrics}
@@ -130,8 +150,8 @@ everything else is as in \cref{tab:app-shared}.
 smoothed Muon (S-Muon) near step 900: mean $\pm$ half-range over data orders 0--2, and the ratios AdamW/Muon (A/M) and
 smoothed Muon/Muon (S/M). If one optimizer's values range over $[x_{\min},x_{\max}]$ and Muon's over
 $[y_{\min},y_{\max}]$, the ratio ranges over $[x_{\min}/y_{\max},\,x_{\max}/y_{\min}]$, given as midpoint $\pm$
-half-width. Rows marked ($\times10^k$) are in units of $10^k$. Bold: in each ratio column, the five ratios farthest
-from 1 on a log scale whose range excludes 1.}
+half-width. Rows marked ($\times10^k$) are in units of $10^k$. Bold: in each ratio column, among the ratios whose range
+excludes 1, the five farthest from 1 on a log scale.}
 \label{tab:app-am}
 \footnotesize\setlength{\tabcolsep}{2.5pt}\setlength{\aboverulesep}{0pt}\setlength{\belowrulesep}{0pt}%
 \renewcommand{\arraystretch}{1.15}%
@@ -179,8 +199,8 @@ JS to bigram model & $0.469 \pm 0.001$ & $0.471 \pm 0.001$ & $0.471 \pm 0.002$ &
 \begin{center}\small\begin{minipage}{\linewidth}\centering
 \captionsetup{type=table}
 \caption{The metrics of \cref{tab:app-am} at training loss 1.81, with SGD as a reference: ratios AdamW/SGD (A/S),
-Muon/SGD (M/S) and smoothed Muon/SGD (S-M/S). Bold: in each ratio column, the five ratios farthest from 1 on a log scale whose range
-excludes 1.}
+Muon/SGD (M/S) and smoothed Muon/SGD (S-M/S). Bold: in each ratio column, among the ratios whose range
+excludes 1, the five farthest from 1 on a log scale.}
 \label{tab:app-sgd}
 \scriptsize\setlength{\tabcolsep}{2pt}\setlength{\aboverulesep}{0pt}\setlength{\belowrulesep}{0pt}%
 \renewcommand{\arraystretch}{1.15}%
@@ -248,6 +268,56 @@ step & AdamW & Muon & S-Muon & AdamW & Muon & S-Muon \\
 8000 & $7.36 \pm 0.29$ & $19.9 \pm 1.4$ & $17.3 \pm 1.0$ & $1587 \pm 14$ & $1761 \pm 18$ & $1616 \pm 47$ \\
 9000 & $8.00 \pm 0.33$ & $21.5 \pm 0.8$ & $19.0 \pm 1.1$ & $1752 \pm 44$ & $1906 \pm 61$ & $1737 \pm 44$ \\
 10000 & $8.73 \pm 0.58$ & $22.1 \pm 0.7$ & $20.0 \pm 1.1$ & $1880 \pm 37$ & $1991 \pm 59$ & $1825 \pm 38$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Swaps}
+\label{app:forks}
+
+\begin{center}\small\begin{minipage}{\linewidth}\centering
+\captionsetup{type=table}
+\caption{Swaps. $A$: parent's optimizer; $B$: optimizer after the swap; $s$: fork step.}
+\label{tab:app-forks}
+\begin{tabular}{@{}lp{0.74\linewidth}@{}}
+\hline
+Parents & the d0 runs of AdamW, Muon and smoothed Muon (\cref{tab:app-shared}) \\
+Warm state & the other optimizers, stepped on the same mini-batch gradients with learning rate 0: momenta, second
+  moments and step counts evolve as if training; parameters follow $A$ alone. The AdamW and Muon parents keep each
+  other's state, the smoothed-Muon parent keeps both \\
+Fork steps $s$ & 50, 100, 200, 400, 700, 1000, 1500, 2500, 4000 \\
+Saved at $s$ & parameters; states of the parent's optimizer and of its warm optimizers \\
+\hline
+Swap $A\to B$ loads & parameters at $s$; $B$'s warm state \\
+Swap to smoothed Muon & the AdamW and Muon parents kept no smoothed-Muon state, so the swap loads Muon's state (momentum
+  $M$ and auxiliary AdamW) and restarts $U=0$ and the step count $t$ of the bias correction at the swap, so its first step is Muon's step. $U$ forgets its
+  start within a few steps (the weight of a step $k$ steps back is $a(1-a)^k$) \\
+Hyperparameters & $B$'s (\cref{tab:app-optim}) \\
+Steps & $s$ to 10{,}000, on the parent's schedule and batches (data order 0) \\
+Swap forks & 4 directions $\times$ 9 steps $=$ 36, besides the 18 between AdamW and Muon from the CE report \\
+Metrics (\cref{fig:swap}) & at $s+{}$0, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 4000, 6000 (each with the next
+  two steps, for the updates) and every 1000 steps \\
+\hline
+\end{tabular}\end{minipage}
+\end{center}
+
+\begin{center}\small
+\captionsetup{type=table}
+\caption{Hessian trace at step 10{,}000 of every swapped run (data order 0). ``Parent'' and ``new'': the own runs of
+the parent's and of the new optimizer. Swaps from AdamW to smoothed Muon end below both own runs at every fork step; swaps from
+AdamW to Muon from fork step 100 on.}
+\label{tab:app-swaptrace}
+\footnotesize\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}l|c|ccccccccc|c@{}}
+ & & \multicolumn{9}{c|}{fork step} & \\
+swap & parent & 50 & 100 & 200 & 400 & 700 & 1000 & 1500 & 2500 & 4000 & new \\
+\hline
+AdamW $\to$ Muon & 1866 & 1994 & 1863 & 1782 & 1538 & 1357 & 1277 & 1198 & 1247 & 1307 & 1989 \\
+Muon $\to$ AdamW & 1989 & 1957 & 1908 & 1737 & 1826 & 1772 & 1721 & 1703 & 1622 & 1431 & 1866 \\
+Muon $\to$ S-Muon & 1989 & 1762 & 1779 & 1747 & 1765 & 1747 & 1760 & 1816 & 1821 & 1844 & 1777 \\
+S-Muon $\to$ Muon & 1777 & 1920 & 1998 & 1946 & 1893 & 1959 & 1935 & 1963 & 1884 & 1842 & 1989 \\
+AdamW $\to$ S-Muon & 1866 & 1754 & 1655 & 1607 & 1335 & 1279 & 1162 & 1132 & 1162 & 1273 & 1777 \\
+S-Muon $\to$ AdamW & 1777 & 1938 & 1869 & 1756 & 1806 & 1751 & 1729 & 1678 & 1564 & 1362 & 1866 \\
 \hline
 \end{tabular}
 \end{center}
