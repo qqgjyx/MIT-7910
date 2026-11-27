@@ -1085,9 +1085,9 @@ def effort(res):
 
 
 def at_tol(r, tol):
-    """The N=10 band result of record r that counts at tol: at 0.02 the band itself; at 0.1 the first of its
-    continuation in band_t0.1/ and the band that is within 0.1, else the one closer to the level."""
-    cands = [b for b in ((r.get('n10_t01'), r['n10']) if tol > 0.05 else (r['n10'],)) if b]
+    """The N=10 band result of record r that counts at tol: at 0.02 the band itself; at 0.1 the band if it is within
+    0.1 (so every such pair keeps its 0.02 path), else its continuation in band_t0.1/ if that is, else the closer."""
+    cands = [b for b in ((r['n10'], r.get('n10_t01')) if tol > 0.05 else (r['n10'],)) if b]
     ok = [b for b in cands if b['max_dev'] <= tol]
     return ok[0] if ok else min(cands, key=lambda b: b['max_dev'], default=None)
 
