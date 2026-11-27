@@ -329,7 +329,7 @@ def dense_check(obj, X, a, b, c_pts, tol, m=8):
 
 def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, obj_string=None, steps=1000, lr=1e-3,
          beta=0.25, ws=(1, 10), iters=10, tol=0.02, rounds=4, round_steps=300, round_iters=10, m=8, max_points=40,
-         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, resume_steps=2500, lm_first=False,
+         init=None, obj_shorten=None, shorten_steps=0, shorten_beta=0.4, stash=None, resume_steps=2500, accept=None,
          log=print):
     """Elastic band between a and b at the losses ca -> cb (see the module docstring): `steps` steps of the string
     method on `obj_string` (default obj), then Levenberg-Marquardt stages at the weights `ws` on `obj`, then at most
@@ -340,9 +340,10 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
     a quarter of the step size, warming up over 10% of `resume_steps` steps and annealing to 0 over the rest, and the
     LM stages run again; the points closer to the level are kept. Points still off the level get no insertion rounds
     (the result is invalid); after such a continuation, the insertion rounds' strings run without springs too.
-    With lm_first, the LM stages run (again) on resumed points, e.g. at a larger tol.
+    accept (default tol) is the tolerance of the dense check, the insertions and validity; tol, that of the
+    optimization (the LM penalty, the string's stopping rule, the shortening's trust region).
     Returns (points, result)."""
-    obj_check = obj_check or obj
+    obj_check, accept = obj_check or obj, accept or tol
     obj_string = obj_string or obj
     obj_shorten = obj_shorten or obj
     ca_check = ca if ca_check is None else ca_check
@@ -422,21 +423,21 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         phase leaves in the path: on a fresh group of sequences of obj_shorten (a larger batch than the string
         phase's), each point moves by beta times the discrete Laplacian of the path minus its component along its
         loss gradient, plus a fraction nu of a Newton step back to its target loss. beta and nu adapt like a trust
-        region: if the max |L - c| after a step exceeds lim = max(tol, 1.5 x its value at the start), the step is
+        region: if the max |L - c| after a step exceeds lim = max(tol, its value at the start), the step is
         undone and both are halved; after a step that keeps it below lim / 2, both grow by 20% (up to shorten_beta and
         1; they start at 1/16 of shorten_beta and 1/4). Stops once the length has fallen by less than 1% of its excess over the last 100 steps. Skipped for a
-        path off the level (max |L - c| on the check set above 2 tol), where the Newton steps fail."""
+        path off the level (max |L - c| on the check set above 2 accept), where the Newton steps fail."""
         bs, nu, ratios, prev, lim, undone = shorten_beta / 16, 0.25, [float(lengths(X, a, b).sum() / D)], None, None, 0
         hist.append(dict(phase='shorten', n=len(X), t=0, beta=bs, check_max_r=check_dev(X), ratio=ratios[0],
                          time=time.time() - t0))
-        if hist[-1]['check_max_r'] > 2 * tol:
+        if hist[-1]['check_max_r'] > 2 * accept:
             log(f"shorten: skipped, max|L-c| {hist[-1]['check_max_r']:.4f} on the check set")
             return X
         for t in range(1, k + 1):
             c = targets(*ends(obj_shorten), len(X))
             L, G = evaluate(obj_shorten, X)
             dev = float(np.abs(L - c).max())
-            lim = lim or max(tol, 1.5 * dev)
+            lim = lim or max(tol, dev)
             if prev is not None and dev > lim:  # the last step left the level set: undo it, smaller steps
                 X, bs, nu, undone = prev, bs / 2, nu / 2, undone + 1
                 L, G = evaluate(obj_shorten, X)
@@ -541,10 +542,6 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
             torch.save(dict(X=X, hist=hist, stages=stages, settings=first), stash)
     if sck is not None:
         sck.unlink(missing_ok=True)
-    if lm_first and st is not None:
-        for w in ws:
-            X = run_stage(X, w, iters, ramp=iters // 2)
-            stages.append(dict(w=w, ratio=hist[-1]['ratio'], max_r=hist[-1]['max_r']))
     if shorten_steps:
         X = shorten(X, shorten_steps)
         stages.append(dict(w='shorten', ratio=hist[-1]['ratio'], max_r=hist[-1].get('max_r')))
@@ -552,23 +549,23 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         seg = lengths(X, a, b)
         _, Jv, ends = walk(obj_check, [a, *X, b])
         return dict(n=len(X), ratio=float(seg.sum() / D), max_dev=float(np.max(worst)),
-                    ok=bool(np.max(worst) <= tol), pred_ratio=dense['pred_ratio'],
+                    ok=bool(np.max(worst) <= accept), pred_ratio=dense['pred_ratio'],
                     pred_ratio_points=pred_length(Jv, ends)[1],
                     offline_max=float((X - straight(a, b, len(X))).norm(dim=1).max() / D))
 
     checks = []
     for r in range(rounds + 1):
         c_chk = np.concatenate([[ca_check], targets(ca_check, cb_check, len(X)), [cb_check]])
-        worst, dense = dense_check(obj_check, X, a, b, c_chk, tol, m)
+        worst, dense = dense_check(obj_check, X, a, b, c_chk, accept, m)
         checks.append(dict(n=len(X), worst=worst.tolist()))
         if r == 0:
             fixed = summary(X, worst, dense)  # fixed N, before any insertion
-        bad = np.flatnonzero(worst > tol)
-        log(f'check {r}: {len(X)} points, worst segment {worst.max():.4f} (tol {tol}), {len(bad)} segments out')
+        bad = np.flatnonzero(worst > accept)
+        log(f'check {r}: {len(X)} points, worst segment {worst.max():.4f} (tol {accept}), {len(bad)} segments out')
         if not len(bad) or r == rounds or len(X) + len(bad) > max_points:
             break
         lm = [s for s in stages if s['w'] not in ('string', 'shorten')]
-        if lm and lm[-1]['max_r'] > 2 * tol:
+        if lm and lm[-1]['max_r'] > 2 * accept:
             log('no insertion rounds: the points are off the level')
             break
         P = [a, *X, b]
@@ -585,8 +582,8 @@ def band(obj, a, b, ca, cb, obj_check=None, ca_check=None, cb_check=None, n=10, 
         if shorten_steps:
             X = shorten(X, shorten_steps)
     valid = summary(X, worst, dense)  # after the insertions
-    res = dict(**valid, fixed=fixed, valid=valid, distance=D, seg=lengths(X, a, b).tolist(), tol=tol, c_a=ca_check,
-               c_b=cb_check, dense=dense, history=hist, checks=checks, stages=stages,
+    res = dict(**valid, fixed=fixed, valid=valid, distance=D, seg=lengths(X, a, b).tolist(), tol=accept, opt_tol=tol,
+               c_a=ca_check, c_b=cb_check, dense=dense, history=hist, checks=checks, stages=stages,
                settings=dict(n=n, steps=steps, lr=lr, beta=beta, ws=list(ws), iters=iters, rounds=rounds,
                              round_steps=round_steps, round_iters=round_iters, m=m, shorten_steps=shorten_steps,
                              shorten_beta=shorten_beta))
@@ -799,7 +796,7 @@ def do_band(model, sets, sa_, sb_, args, out, n=None, perturb=0.0, perturb_seed=
                   tol=args.tol, rounds=args.rounds, round_steps=args.round_steps, round_iters=args.round_iters,
                   m=args.m, init=init, obj_shorten=mid, shorten_steps=args.shorten_steps,
                   shorten_beta=args.shorten_beta, stash=Path(out).with_suffix('.stage.pt'),
-                  resume_steps=args.resume_steps, lm_first=getattr(args, 'lm_first', False), log=say)
+                  resume_steps=args.resume_steps, accept=getattr(args, 'accept', None), log=say)
     pl = np.array([Objective(model, path_set).loss(x) for x in [a, *X, b]])  # the path set, at the points
     pc = pl[0] + (pl[-1] - pl[0]) * np.linspace(0, 1, len(pl))
     res.update(a=sa_, b=sb_, n_seqs=args.n_seqs, pool=args.pool, pathset=pl.tolist(), perturb=perturb,
@@ -1018,8 +1015,8 @@ def cmd_work(args):
                     link = Path(f).with_suffix('.stage.pt')
                     if not link.is_symlink():
                         link.symlink_to(task_out((*t[:1], 'band', *t[2:]), args).with_suffix('.stage.pt'))
-                    do_band(model, sets, sa_, sb_, argparse.Namespace(**{**vars(args), 'tol': 0.1, 'resume_steps': 0,
-                                                                         'lm_first': True}), f, n=n)
+                    do_band(model, sets, sa_, sb_, argparse.Namespace(**{**vars(args), 'accept': 0.1, 'resume_steps': 0}),
+                           f, n=n)
                 else:
                     do_band(model, sets, sa_, sb_, args, f, n=n, perturb=args.perturb if seed else 0.0,
                             perturb_seed=seed or 1)
