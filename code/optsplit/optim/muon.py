@@ -68,9 +68,10 @@ def sv_power_two_track(G, p, steps):
 
 
 # LC (linear combination of Newton-Schulz iterates): for (p, steps), the quintic coefficients (a, b, c) of each step and
-# the weights w_0..w_steps of the iterates X_0..X_steps. Fitted on real momentum matrices (scripts/lc/final_coeffs.json,
-# sets p-0.3_lc5_eps3.0e-03, p-0.3_lc6_eps1.0e-03, p-0.3_lc8_eps2.0e-04 and p-0.3_lc12_eps2.0e-06;
-# scripts/lc/check_snippet.py checked the first two on momentum matrices that are not in the repository).
+# the weights w_0..w_steps of the iterates X_0..X_steps. Fitted as a scalar float64 minimax fit of g(sigma) on [eps, 1]
+# by scripts/lc/s3_joint.py (scripts/lc/final_coeffs.json, sets p-0.3_lc5_eps3.0e-03, p-0.3_lc6_eps1.0e-03,
+# p-0.3_lc8_eps2.0e-04 and p-0.3_lc12_eps2.0e-06); real momentum matrices were used only to evaluate the sets and
+# pick eps (scripts/lc/check_snippet.py checked the first two on momentum matrices that are not in the repository).
 LC = {
     (-0.3, 5): (((3.5969, -7.7746, 4.8280), (3.5004, -7.1445, 4.1116), (3.4189, -6.6980, 3.8465),
                  (3.0402, -4.9130, 2.8709), (1.8013, -1.6495, 0.84815)),
