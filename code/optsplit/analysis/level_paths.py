@@ -1117,9 +1117,9 @@ def cmd_work(args):
         T = [t for t in task_list(A, args)
              if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
         # bands of this job (one GPU) against the room for them: a band of up to 40 points takes about --band-gb
-        job = me.split(':')[0]
-        room = max(1, int(gpu // (args.band_gb * 2 ** 30))) - sum(
-            _holder(task_out(u, args)) == job for u in T if u[1] == 'band')
+        job, cap = me.split(':')[0], max(1, int(gpu // (args.band_gb * 2 ** 30)))
+        held = lambda: sum(_holder(task_out(u, args)) == job for u in T if u[1] == 'band')
+        room = cap - held()
         short = False  # a band left for want of room: wait for it instead of exiting
         for t in T:
             f = task_out(t, args)
@@ -1128,6 +1128,10 @@ def cmd_work(args):
                 short = True
                 continue
             if oom.exists() and float(oom.read_text()) >= gpu or not claim(f):
+                continue
+            if t[1] == 'band' and held() > cap:  # other workers of this job claimed bands meanwhile
+                release(f)
+                short = True
                 continue
             _, kind, sel, _, level, pair, n, seed = t
             sa_, sb_, _ = json.loads(sel.read_text())[level]['pairs'][pair]
@@ -1163,7 +1167,7 @@ def cmd_work(args):
             break
         else:  # nothing to take now
             if short:
-                time.sleep(120)
+                time.sleep(60 + os.getpid() % 60)
                 continue
             if (A / 'select.json').exists():
                 return 0
