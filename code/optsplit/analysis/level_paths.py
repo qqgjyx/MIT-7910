@@ -1075,10 +1075,13 @@ def reruns_alive(A):
     return (lock.exists() and recent(lock)) or any(recent(f) for f in R.rglob('*') if f.exists())
 
 
-def _holder(out):
-    """The 'job:host' that holds the lock of output `out`, or None."""
+def _mine(out, me):
+    """True if a live process of this job on this host (`me`: job:host:pid) holds the lock of output `out` (a lock
+    left by this job before a requeue, on this host or another, is not: claim takes it back)."""
     with contextlib.suppress(FileNotFoundError):
-        return ':'.join(Path(out).with_suffix('.lock').read_text().split(':')[:2])
+        job, host, pid = (Path(out).with_suffix('.lock').read_text().strip().split(':') + ['', ''])[:3]
+        return [job, host] == me.split(':')[:2] and pid.isdigit() and _alive(int(pid))
+    return False
 
 
 def cmd_work(args):
@@ -1117,9 +1120,8 @@ def cmd_work(args):
         T = [t for t in task_list(A, args)
              if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
         # bands of this job (one GPU) against the room for them: a band of up to 40 points takes about --band-gb
-        job, cap = me.split(':')[0], max(1, int(gpu // (args.band_gb * 2 ** 30)))
-        # bands held on this node (a lock this job left on another node before a requeue is taken back by claim)
-        held = lambda: sum(_holder(task_out(u, args)) == me.rsplit(':', 1)[0] for u in T if u[1] == 'band')
+        cap = max(1, int(gpu // (args.band_gb * 2 ** 30)))
+        held = lambda: sum(_mine(task_out(u, args), me) for u in T if u[1] == 'band')
         room = cap - held()
         short = False  # a band left for want of room: wait for it instead of exiting
         for t in T:
