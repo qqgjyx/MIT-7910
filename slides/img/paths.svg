@@ -1807,7 +1807,7 @@ z
    </g>
    <g id="text_20">
     <!-- two Muon runs -->
-    <g style="fill: #1c1c1c" transform="translate(884.376576 211.1978) scale(0.15 -0.15)">
+    <g style="fill: #d9472b" transform="translate(884.376576 211.1978) scale(0.15 -0.15)">
      <use xlink:href="#Manrope-Regular-126"/>
      <use xlink:href="#Manrope-Regular-13f" transform="translate(40.046875 0)"/>
      <use xlink:href="#Manrope-Regular-101" transform="translate(114.796875 0)"/>
@@ -1825,7 +1825,7 @@ z
    </g>
    <g id="text_21">
     <!-- two AdamW runs -->
-    <g style="fill: #1c1c1c" transform="translate(884.376576 187.5434) scale(0.15 -0.15)">
+    <g style="fill: #2c6cb0" transform="translate(884.376576 187.5434) scale(0.15 -0.15)">
      <use xlink:href="#Manrope-Regular-126"/>
      <use xlink:href="#Manrope-Regular-13f" transform="translate(40.046875 0)"/>
      <use xlink:href="#Manrope-Regular-101" transform="translate(114.796875 0)"/>

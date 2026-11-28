@@ -1,4 +1,5 @@
-"""Every figure of slides/deck.html (slides/img/*.svg), drawn from the small data files in slides/data:
+"""Every figure of slides/deck.html and slides/deck_old.html (slides/img/*.svg), drawn from the small data files in
+slides/data:
 
     uv run --no-project --with matplotlib,numpy python slides/make_figures.py
 
@@ -7,8 +8,10 @@ Each data file names its source. These options rebuild them first, from the proj
     --runs DIR           data/runs.json from the run logs DIR/<suite>/<run>/metrics.jsonl (ORCD's runs/, or the copy
                          that code/scripts/gram_section.sh makes)
     --metrics FILE       data/metrics.json from rank_metrics.py's metrics.json (ORCD analysis/ts10m_ce_smooth/rank/)
-    --level-paths DIR..  data/level_paths.json from optsplit.analysis.level_paths outputs (dirs with profile/ and walk/),
-                         any number of data orders; AdamW vs Muon and the floors are means over their pairs
+    --level-paths DIR..  data/level_paths.json from optsplit.analysis.level_paths outputs (dirs with profile/, walk/
+                         and band/), any number of data orders; AdamW vs Muon and the floors are means over their pairs
+    --js-loss CACHE RUNS data/js_loss.json from the distance cache (ORCD analysis/cache/distance/) and the run logs
+                         RUNS/ts10m_main/<run>/metrics.jsonl
 """
 import argparse
 import json
@@ -100,12 +103,13 @@ def extract_runs(root):
             out['gpu_min'][name] = [None if (s := first_step(steps, v, target)) is None else s * ms[name] / 60000
                                     for steps, v in cs]
     adamw_mean = float(np.mean(out['final']['AdamW']))
-    for name in ('AdamW', 'Muon', 'Smoothed Muon'):  # mean over the orders at the shared steps
+    for name in curves:  # mean over the orders at the shared steps
         common = sorted(set.intersection(*(set(s.tolist()) for s, _ in curves[name])))
         mean = np.mean([v[np.isin(s, common)] for s, v in curves[name]], axis=0)
         out['mean_curve'][name] = dict(steps=common, val=mean.round(5).tolist())
         grid = [(s, m) for s, m in zip(common, mean) if s % 250 == 0]  # saved models are 250 steps apart
-        out['steps_to_adamw_mean'][name] = next(s for s, m in grid if m <= adamw_mean)
+        if name in ('AdamW', 'Muon', 'Smoothed Muon'):
+            out['steps_to_adamw_mean'][name] = next(s for s, m in grid if m <= adamw_mean)
     for p in ('-1', '-0.75', '-0.5', '-0.3', '-0.1', '0', '0.25', '0.5', '0.75'):
         out['p_sweep'][p] = float(val(f'ts10m_ce_svp/muon_p{p}_lr0.01_d0')[1][-1])
     (DATA / 'runs.json').write_text(json.dumps(out, indent=1))
@@ -137,20 +141,30 @@ def extract_metrics(path, level=1.81):
 
 def extract_level_paths(dirs):
     """data/level_paths.json: per loss level (the AdamW order-0 step that defines it) and pair group, the straight
-    line's rise and the level-set walk's detour (length / distance - 1; None where it stopped short). A pair found in
-    several dirs is taken from the last."""
-    found = {}
+    line's rise, the level-set walk's detour (length / distance - 1; None where it stopped short) and the 20-point
+    constant-loss path's detour and length in weights (band/*_n20). A pair found in several dirs is taken from the
+    last."""
+    found, bands = {}, {}
     for d in map(Path, dirs):
         for f in (d / 'profile').glob('*.json'):
             found[f.stem] = f
+        for f in (d / 'band').glob('*_n20.json'):
+            bands[f.stem] = f
     levels = {}
+    for stem, f in sorted(bands.items()):
+        level, pair = stem.split('_', 1)
+        b = json.loads(f.read_text())
+        group = 'adamw-muon' if pair.startswith('adamw-muon') else pair.split('_')[0]
+        r = levels.setdefault(level, dict(rise={}, walk={}, path={}, length={}))
+        r['path'].setdefault(group, []).append(b['ratio'] - 1)
+        r['length'].setdefault(group, []).append(b['ratio'] * b['distance'])
     for stem, f in sorted(found.items()):
         level, pair = stem.split('_', 1)
         prof = json.loads(f.read_text())
         w = f.parent.parent / 'walk' / f'{stem}_pc.json'
         walk = json.loads(w.read_text()) if w.exists() else None
         group = 'adamw-muon' if pair.startswith('adamw-muon') else pair.split('_')[0]
-        r = levels.setdefault(level, dict(rise={}, walk={}))
+        r = levels.setdefault(level, dict(rise={}, walk={}, path={}, length={}))
         if '/adamw_d0:' in prof['a']:
             r['step'] = int(prof['a'].rsplit(':', 1)[1])
         r['rise'].setdefault(group, []).append(prof['rise'])
@@ -159,17 +173,44 @@ def extract_level_paths(dirs):
     (DATA / 'level_paths.json').write_text(json.dumps(dict(source=[str(d) for d in dirs], levels=out), indent=1))
 
 
+def extract_js_loss(cache, root, tol=0.02):
+    """data/js_loss.json: JS between two runs at equal training loss, as distance.loss_curve (checkpoint Fig. 1c), for
+    AdamW vs Muon on the same data order and every pair of data orders of one optimizer (ts10m_main, orders 0-4)."""
+    def loss_points(run, steps):
+        r = [x for x in map(json.loads, (Path(root) / 'ts10m_main' / run / 'metrics.jsonl').open())
+             if x['kind'] == 'eval' and x['step'] in steps]
+        return np.array([x['step'] for x in r]), np.minimum.accumulate([x['train_loss'] for x in r])
+
+    out = dict(source=f'{cache} (analysis/cache/distance on ORCD) and the training losses in {root}', pairs={})
+    groups = {'adamw-muon': [(f'adamw_d{d}', f'muon_d{d}') for d in ORDERS]}
+    groups |= {o: list(combinations([f'{o}_d{d}' for d in ORDERS], 2)) for o in ('adamw', 'muon')}
+    for g, pairs in groups.items():
+        for a, b in pairs:
+            d = json.loads((Path(cache) / f'ts10m_main-{a}__ts10m_main-{b}.json').read_text())['d']
+            steps = {int(k.split(',')[0]) for k in d if len(set(k.split(','))) == 1}  # the prediction steps
+            (sa, la), (sb, lb) = loss_points(a, steps), loss_points(b, steps)
+            j = np.abs(lb[None, :] - la[:, None]).argmin(1)
+            ok = np.abs(lb[j] - la) <= tol * np.abs(la)
+            js = [d[f'{s},{t}'][0] for s, t in zip(sa[ok], sb[j[ok]])]
+            out['pairs'].setdefault(g, []).append(dict(loss=la[ok].round(5).tolist(), js=np.round(js, 5).tolist()))
+    (DATA / 'js_loss.json').write_text(json.dumps(out))
+
+
 # ---------------------------------------------------------------- figures
 
-def label_right(ax, x, ys, texts, gap, **kw):
-    """Labels at x for points ys, pushed apart to at least `gap` (data units) without changing their order."""
+def label_right(ax, x, ys, texts, gap, colors, ends=None, **kw):
+    """Labels at x for points ys, each in its line's colour, pushed apart to at least `gap` (data units) without
+    changing their order; with `ends` (the lines' last x), a thin leader from each line's end to its label."""
     order = np.argsort(ys)
     pos = np.array(ys, dtype=float)[order]
     for i in range(1, len(pos)):
         pos[i] = max(pos[i], pos[i - 1] + gap)
     pos -= (pos.mean() - np.mean(np.array(ys)[order])) * 0.5
     for p, i in zip(pos, order):
-        ax.text(x, p, texts[i], va='center', **kw)
+        ax.text(x, p, texts[i], va='center', color=colors[i], **kw)
+        if ends is not None:
+            ax.plot([ends[i], x - 0.01 * np.ptp(ax.get_xlim()), ], [ys[i], p], color=colors[i], lw=0.8,
+                    clip_on=False)
 
 
 def fig_speed():
@@ -180,7 +221,7 @@ def fig_speed():
     for name, c in (('AdamW', ADAMW), ('Muon', MUON)):
         cur = r['mean_curve'][name]
         ax.plot(cur['steps'], cur['val'], color=c, lw=2.5)
-        ax.text(10150, cur['val'][-1], f'{name}  {cur["val"][-1]:.3f}', va='center', fontsize=15, color=INK)
+        ax.text(10150, cur['val'][-1], f'{name}  {cur["val"][-1]:.3f}', va='center', fontsize=15, color=c)
     s = r['steps_to_adamw_mean']['Muon']
     ax.axhline(target, color=MUTE, lw=1, ls=(0, (2, 3)))
     ax.plot([s, s], [1.22, target], color=MUTE, lw=1, ls=(0, (2, 3)))
@@ -205,17 +246,18 @@ ROWS = {  # metric: (label, format of the values)
 }
 
 
-def ratio_plot(rows, series, name, xlim=(0.3, 3.6), h=560):
+def ratio_plot(rows, series, name, xlim=(0.3, 3.6), h=560, w=1392, rect=(0.255, 0.15, 0.43, 0.72), colx0=0.75,
+               dcol=0.085):
     """Rows of metrics: each series' value over Muon's (log axis; dot at the midpoint of the range over data orders,
     bar over [min a / max Muon, max a / min Muon], as metric_ratios.ratio), Muon at 1, and every optimizer's mean value
     in columns on the right. rows: (label, {optimizer: [value per order]}, format), or None for a gap."""
     cols = [s for s, _ in series] + ['muon']
     colors = dict(series) | {'muon': MUON}
     names = {'adamw': 'AdamW', 'muon': 'Muon', 'smuon': 'Smoothed\nMuon'}
-    fig = plt.figure(figsize=(13.92, h / 100))
-    ax = fig.add_axes((0.255, 0.15, 0.43, 0.72))
+    fig = plt.figure(figsize=(w / 100, h / 100))
+    ax = fig.add_axes(rect)
     at = matplotlib.transforms.blended_transform_factory(fig.transFigure, ax.transData)
-    colx = [0.75 + 0.085 * k for k in range(len(cols))]
+    colx = [colx0 + dcol * k for k in range(len(cols))]
     y, ticks, labels = 0, [], []
     for row in rows:
         y -= 1 if row else 0.5
@@ -232,10 +274,11 @@ def ratio_plot(rows, series, name, xlim=(0.3, 3.6), h=560):
             ax.plot([lo, hi], [y + off] * 2, color=c, lw=2.5, alpha=0.45)
             ax.plot((lo + hi) / 2, y + off, 'o', ms=12, color=c, mec='white', mew=1.5, zorder=4)
         for x, o in zip(colx, cols):
-            fig.text(x, y, (fmt if callable(fmt) else fmt.format)(np.mean(v[o])), transform=at, ha='right', va='center', fontsize=15, color=TEXT)
+            fig.text(x, y, (fmt if callable(fmt) else fmt.format)(np.mean(v[o])), transform=at, ha='right',
+                     va='center', fontsize=15, color=TEXT)
     for x, o in zip(colx, cols):
         fig.text(x, 0.05, names[o], transform=at, ha='right', va='bottom', fontsize=14, color=INK, linespacing=1.15)
-        ax.plot([x - 0.035, x], [-0.12] * 2, transform=at, color=colors[o], lw=3, clip_on=False)
+        ax.plot([x - 0.035 * 1392 / w, x], [-0.12] * 2, transform=at, color=colors[o], lw=3, clip_on=False)
     ax.axvline(1, color=MUON, lw=2, zorder=1)
     ax.set_xscale('log')
     ax.set_xlim(*xlim)
@@ -269,6 +312,25 @@ def fig_smoothed():
     ratio_plot(rows, [('adamw', ADAMW), ('smuon', SMUON)], 'smoothed.svg', h=580)
 
 
+def fig_metrics_short():
+    """New deck, slide 2: four of slide 2's metrics."""
+    v = load('metrics.json')['values']
+    rows = [(ROWS[k][0], v[k], ROWS[k][1]) for k in ('update_align', 'stable_rank', 'lambda_max', 'acc')]
+    ratio_plot(rows, [('adamw', ADAMW)], 'metrics_short.svg', h=400, w=1200, rect=(0.29, 0.21, 0.42, 0.62),
+               colx0=0.79, dcol=0.1)
+
+
+def fig_smoothed_short():
+    """New deck, slide 3: steps to AdamW's final loss and the cosine of consecutive updates."""
+    v, r = load('metrics.json')['values'], load('runs.json')
+    steps = r['steps_to_adamw_mean']
+    speed = {o: [steps[n]] for o, n in (('adamw', 'AdamW'), ('muon', 'Muon'), ('smuon', 'Smoothed Muon'))}
+    rows = [('Steps to AdamW\'s final loss', speed, '{:,.0f}'), ('Cosine of consecutive updates', v['update_align'],
+                                                                 ROWS['update_align'][1])]
+    ratio_plot(rows, [('adamw', ADAMW), ('smuon', SMUON)], 'smoothed_short.svg', xlim=(0.6, 1.7), h=330, w=1200,
+               rect=(0.29, 0.27, 0.42, 0.45), colx0=0.79, dcol=0.1)
+
+
 def fig_power():
     """Slide 4: final validation loss against the power p (exact SVD, data order 0, learning rate 0.01)."""
     r = load('runs.json')
@@ -276,9 +338,8 @@ def fig_power():
     v = np.array(list(r['p_sweep'].values()))
     top = 1.372
     fig, ax = figure(1000, 560)
-    for name, c, y in (('AdamW', ADAMW, r['final']['AdamW'][0]), ('Muon', MUON, r['final']['Muon'][0])):
-        ax.axhline(y, color=c, lw=2, ls=(0, (4, 3)))
-        ax.text(1.12, y, name, va='center', fontsize=15, color=INK)
+    ax.axhline(r['final']['AdamW'][0], color=ADAMW, lw=2, ls=(0, (4, 3)))
+    ax.text(1.12, r['final']['AdamW'][0], 'AdamW', va='center', fontsize=15, color=ADAMW)
     ax.plot(p, v, color=INK, lw=1.5, zorder=3)
     ax.plot(p[v < top], v[v < top], 'o', ms=9, color=INK, mec='white', mew=1.5, zorder=4)
     for x, y in zip(p[v >= top], v[v >= top]):  # off the top: an arrow and the value
@@ -288,6 +349,7 @@ def fig_power():
     best = np.argmin(v)
     ax.plot(p[best], v[best], 'o', ms=14, color=INK, mec='white', mew=1.5, zorder=5)
     ax.text(p[best] - 0.07, v[best], f'p = −0.3:  {v[best]:.4f}', ha='right', va='center', fontsize=15, color=INK)
+    ax.text(0.07, r['p_sweep']['0'], f'p = 0 (Muon):  {r["p_sweep"]["0"]:.4f}', va='center', fontsize=15, color=INK)
     ax.set(xlim=(-1.08, 1.08), ylim=(1.293, top), xlabel='power p applied to the singular values',
            ylabel='final validation loss')
     ax.set_xticks([-1, -0.5, 0, 0.5, 1], ['−1', '−0.5', '0\nMuon', '0.5', '1\nmomentum\nas it is'])
@@ -331,11 +393,45 @@ def fig_cost():
     save(fig, 'cost.svg')
 
 
-def fig_paths():
-    """Slide 6: densMAP of the prediction paths (data orders 0-2, from step 250) and JS at equal step."""
-    runs, js = load('densmap.json')['runs'], load('js_steps.json')
-    fig = plt.figure(figsize=(13.92, 5.6))
-    ax = fig.add_axes((0.0, 0.02, 0.45, 0.96))
+def fig_cost_curves():
+    """New deck, slide 5: validation loss against the step (left) and against GPU minutes (right), means over the data
+    orders (n in the caption); dotted: AdamW's final loss on order 0, with a dot where each mean curve first reaches it."""
+    r = load('runs.json')
+    lines = {'Muon': MUON, 'Exact SVD': MUTE, 'LC5': '#c29100', 'LC12': INK, 'Gram LC': '#8a5ac2'}
+    fig, axes = figure(1392, 440, ncols=2, sharey=True, gridspec_kw=dict(wspace=0.25))
+    xmax = (10000, 22.5)
+    for ax, gpu in zip(axes, (False, True)):
+        ends, ys, texts = [], [], []
+        for n, c in lines.items():
+            cur = r['mean_curve'][n]
+            x = np.array(cur['steps']) * (r['ms_per_step'][n] / 60000 if gpu else 1)
+            s = first_step(x, np.array(cur['val']), r['target'])
+            ax.plot(x, cur['val'], color=c, lw=2.8 if n == 'Muon' else 2, zorder=4 if n == 'Muon' else 3)
+            if x[-1] <= xmax[gpu]:
+                ax.plot(s, r['target'], 'o', ms=9, color=c, mec='white', mew=1.5, zorder=5)
+                ends.append(x[-1])
+                ys.append(cur['val'][-1])
+                texts.append(n)
+            else:  # off the right edge
+                ax.annotate(f'{n}: {s:.0f} min', (xmax[gpu], r['target'] - 0.004), (xmax[gpu] - 0.3, r['target'] - 0.004),
+                            ha='right', va='center', fontsize=14, color=c,
+                            arrowprops=dict(arrowstyle='-|>', color=c, lw=1.5), annotation_clip=False)
+        ax.set_xlim(*((6000, 10000), (11, xmax[1]))[gpu])
+        label_right(ax, xmax[gpu] + 0.04 * np.ptp(ax.get_xlim()), ys, texts, 0.0036,
+                    [lines[t] for t in texts], ends, fontsize=14)
+        ax.axhline(r['target'], color=ADAMW, lw=1.5, ls=(0, (1, 2.5)), zorder=2)
+    axes[0].text(9950, r['target'] + 0.0015, f'AdamW\'s final loss  {r["target"]:.4f}', ha='right', fontsize=14,
+                 color=ADAMW)
+    axes[0].set(ylim=(1.297, 1.35), xlabel='training step', ylabel='validation loss')
+    axes[0].set_xticks([6000, 8000, 10000], ['6,000', '8,000', '10,000'])
+    axes[1].set(xlabel='GPU minutes (step × time per step)')
+    axes[0].set_yticks([1.30, 1.31, 1.32, 1.33, 1.34])
+    fig.subplots_adjust(left=0.07, right=0.91, bottom=0.17, top=0.97)
+    save(fig, 'cost_curves.svg')
+
+
+def map_panel(ax, runs):
+    """densMAP of the prediction paths (data orders 0-2, from step 250); returns the legend's handles and labels."""
     for t in runs.values():
         c = ADAMW if t['optimizer'] == 'adamw' else MUON
         xy = np.array(t['xy'])
@@ -349,10 +445,17 @@ def fig_paths():
     key = [H([], [], color=ADAMW, lw=2), H([], [], color=MUON, lw=2),
            H([], [], ls='', marker='o', ms=8, mfc='white', mec=INK, mew=1.8),
            H([], [], ls='', marker='o', ms=11, color=INK, mec='white'), H([], [], ls='', marker='s', ms=7, color=INK)]
-    ax.legend(key, ['AdamW', 'Muon', 'step 250',
-                    f'step 1000 (training loss:\nAdamW {loss["adamw"]:.2f}, Muon {loss["muon"]:.2f})', 'step 10,000'],
-              loc='lower left', frameon=False, fontsize=14, handlelength=1.6,
-              labelcolor=TEXT)
+    return key, ['AdamW', 'Muon', 'step 250',
+                 f'step 1000 (training loss:\nAdamW {loss["adamw"]:.2f}, Muon {loss["muon"]:.2f})', 'step 10,000']
+
+
+def fig_paths():
+    """Old deck, slide 6: the densMAP and JS at equal step."""
+    runs, js = load('densmap.json')['runs'], load('js_steps.json')
+    fig = plt.figure(figsize=(13.92, 5.6))
+    ax = fig.add_axes((0.0, 0.02, 0.45, 0.96))
+    key, labels = map_panel(ax, runs)
+    ax.legend(key, labels, loc='lower left', frameon=False, fontsize=14, handlelength=1.6, labelcolor=TEXT)
     ax.set_aspect('equal', 'datalim')
     ax.axis('off')
     bx = fig.add_axes((0.56, 0.15, 0.31, 0.8))
@@ -361,11 +464,40 @@ def fig_paths():
     for k, c, _ in lines:
         bx.plot(js['steps'], js[k], color=c, lw=2.8 if k == 'adamw_vs_muon' else 2, marker='o', ms=7,
                 mec='white', mew=1)
-    label_right(bx, 10400, [js[k][-1] for k, _, _ in lines], [t for _, _, t in lines], 0.011, fontsize=15,
-                color=INK)
+    label_right(bx, 10400, [js[k][-1] for k, _, _ in lines], [t for _, _, t in lines], 0.011,
+                [c for _, c, _ in lines], fontsize=15)
     bx.set(xlim=(0, 10000), ylim=(0, 0.15), xlabel='training step', ylabel='distance between predictions (bits)')
     bx.set_xticks([0, 5000, 10000], ['0', '5,000', '10,000'])
     save(fig, 'paths.svg')
+
+
+def fig_paths_loss():
+    """New deck, slide 6: the densMAP and JS at equal training loss (checkpoint Fig. 1a and c), means over the pairs."""
+    pairs = load('js_loss.json')['pairs']
+    fig = plt.figure(figsize=(13.92, 5.6))
+    ax = fig.add_axes((0.0, 0.02, 0.45, 0.96))
+    key, labels = map_panel(ax, load('densmap.json')['runs'])
+    ax.legend(key, labels, loc='lower left', frameon=False, fontsize=14, handlelength=1.6, labelcolor=TEXT)
+    ax.set_aspect('equal', 'datalim')
+    ax.axis('off')
+    bx = fig.add_axes((0.53, 0.15, 0.26, 0.8))
+    lo = max(min(p['loss']) for ps in pairs.values() for p in ps)  # the lowest loss every pair reaches
+    grid = 1 + np.exp(np.linspace(np.log(3), np.log(lo - 1), 200))  # 4 down to lo, even in log(L - 1)
+    lines = (('adamw-muon', INK, 'AdamW vs Muon'), ('adamw', ADAMW, 'two AdamW runs'), ('muon', MUON, 'two Muon runs'))
+    ends = []
+    for g, c, _ in lines:
+        m = np.mean([np.interp(grid, p['loss'][::-1], p['js'][::-1]) for p in pairs[g]], axis=0)
+        bx.plot(grid, m, color=c, lw=2.8 if g == 'adamw-muon' else 2)
+        ends.append(m[-1])
+    bx.set_xscale('function', functions=(lambda x: np.log(np.maximum(x - 1, 1e-9)), lambda y: np.exp(y) + 1))
+    bx.set_xlim(4, lo)
+    label_right(bx, 1 + (lo - 1) * 0.92, ends, [f'{t} ({len(pairs[g])} pairs)' for g, _, t in lines], 0.011,
+                [c for _, c, _ in lines], fontsize=15)
+    ticks = [4, 3, 2.5, 2, 1.75, 1.5, 1.4]
+    bx.set_xticks(ticks, [f'{t:g}' for t in ticks])
+    bx.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    bx.set(ylim=(0, 0.15), xlabel='training loss', ylabel='distance between predictions (bits)')
+    save(fig, 'paths_loss.svg')
 
 
 def fig_level_paths():
@@ -397,11 +529,43 @@ def fig_level_paths():
     save(fig, 'level_paths.svg')
 
 
+def fig_landscape():
+    """New deck, slide 7: against the loss level, the straight line's barrier, and the detour and length in weights of
+    the 20-point constant-loss path (level_paths.pdf Fig. 1a and c); means over the pairs of a group (band: range)."""
+    lv = load('level_paths.json')['levels']
+    style = {'adamw-muon': (INK, 'AdamW vs Muon'), 'adamw': (ADAMW, 'two AdamW runs'), 'muon': (MUON, 'two Muon runs')}
+    npairs = {g: len(lv[0]['rise'][g]) for g in style}
+    fig, axes = figure(1392, 520, ncols=3, gridspec_kw=dict(wspace=0.3))
+    panels = (('rise', 1, 'Barrier on the straight line (nats)'), ('path', 100, 'Detour of a constant-loss path (%)'),
+              ('length', 1, 'Length of that path in weights'))
+    for ax, (key, scale, title) in zip(axes, panels):
+        for g, (c, name) in style.items():
+            idx = [i for i, r in enumerate(lv) if r.get(key, {}).get(g)]
+            y = scale * np.array([lv[i][key][g] for i in idx], dtype=float)
+            ax.plot(idx, y.mean(1), color=c, lw=2.8 if g == 'adamw-muon' else 2, marker='o', ms=8, mec='white', mew=1,
+                    label=f'{name} ({npairs[g]} pair{"s" * (npairs[g] > 1)})' if ax is axes[0] else None)
+            if y.shape[1] > 1:
+                ax.fill_between(idx, y.min(1), y.max(1), color=c, alpha=0.12, lw=0)
+        ax.set_title(title, loc='left', fontsize=15, color=TEXT, pad=12)
+        ax.set_xticks(range(len(lv)), [f'{round(r["step"] / 100)}%' for r in lv], fontsize=12)
+        ax.set_xlim(-0.4, len(lv) - 0.6)
+    axes[0].set_ylim(0, None)
+    axes[1].set_yscale('log')
+    axes[1].set_yticks([0.01, 0.1, 1, 10], ['0.01', '0.1', '1', '10'])
+    axes[2].set_ylim(0, None)
+    fig.supxlabel('loss level: AdamW\'s loss after this % of its run', fontsize=15, color=TEXT, y=0.02)
+    fig.legend(loc='upper center', ncol=3, frameon=False, fontsize=15, handlelength=1.8, columnspacing=2.5,
+               labelcolor='linecolor')
+    fig.subplots_adjust(left=0.05, right=0.99, bottom=0.17, top=0.8)
+    save(fig, 'landscape.svg')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--runs')
     ap.add_argument('--metrics')
     ap.add_argument('--level-paths', nargs='+')
+    ap.add_argument('--js-loss', nargs=2, metavar=('CACHE', 'RUNS'))
     args = ap.parse_args()
     if args.runs:
         extract_runs(args.runs)
@@ -409,5 +573,8 @@ if __name__ == '__main__':
         extract_metrics(args.metrics)
     if args.level_paths:
         extract_level_paths(args.level_paths)
-    for f in (fig_speed, fig_metrics, fig_smoothed, fig_power, fig_cost, fig_paths, fig_level_paths):
+    if args.js_loss:
+        extract_js_loss(*args.js_loss)
+    for f in (fig_speed, fig_metrics, fig_smoothed, fig_power, fig_cost, fig_paths, fig_level_paths,  # both decks
+              fig_metrics_short, fig_smoothed_short, fig_cost_curves, fig_paths_loss, fig_landscape):  # the new deck only
         f()

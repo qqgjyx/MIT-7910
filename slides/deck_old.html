@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why Muon trains faster than AdamW</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;300;400;500;600&family=Noto+Sans+Math&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1c1c1c;
+    --text: #262626;
+    --mute: #8b8b87;
+    --hair: #e7e7e3;
+    --paper: #ffffff;
+    --accent: #d9472b;
+    --sans: "Manrope", "Noto Sans Math", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #f3f3f1; }
+  body { font-family: var(--sans); font-weight: 300; color: var(--text); overflow: hidden;
+         -webkit-font-smoothing: antialiased; font-variant-ligatures: none; }
+  p, li { text-wrap: pretty; }
+
+  /* stage: every slide is a 1600x900 canvas scaled to fit */
+  #stage { position: fixed; left: 50%; top: 50%; width: 1600px; height: 900px; transform-origin: center center; }
+  .slide {
+    position: absolute; inset: 0; width: 1600px; height: 900px; background: var(--paper);
+    padding: 72px 104px 0 104px; display: none; flex-direction: column;
+  }
+  .slide.on { display: flex; }
+
+  /* labels */
+  .kicker { font-size: 13px; font-weight: 500; letter-spacing: .24em; text-transform: uppercase;
+            display: flex; align-items: center; gap: 16px; color: var(--ink); }
+  .kicker::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+
+  h1 { font-weight: 300; font-size: 50px; line-height: 1.18; letter-spacing: -.015em; color: var(--ink);
+       margin-top: 30px; max-width: 1392px; text-wrap: balance; }
+  h1.sm { font-size: 42px; }
+  .lede { font-size: 24px; line-height: 1.55; color: var(--text); margin-top: 22px; max-width: 1240px; }
+  .lede.s { font-size: 21px; margin-top: 16px; }
+  b, strong { font-weight: 600; color: var(--ink); }
+  i { font-style: italic; }
+
+  .body { flex: 1; display: flex; gap: 64px; margin-top: 28px; margin-bottom: 20px; min-height: 0; align-items: center; }
+  .col { flex: 1; min-width: 0; }
+
+  /* figures: borderless, scaled into the space left on the slide */
+  .fig { flex: 1; min-height: 0; height: 100%; display: flex; justify-content: center; align-items: center; }
+  .fig img { height: 100%; max-width: 100%; object-fit: contain; display: block; }
+  .cap { font-size: 18px; line-height: 1.45; font-weight: 400; color: var(--mute); margin-bottom: 28px; max-width: 1392px; }
+
+  /* numbered list on hairlines */
+  ul.pts { list-style: none; counter-reset: item; }
+  ul.pts li { font-size: 28px; line-height: 1.45; padding: 22px 0 22px 64px; position: relative; border-top: 1px solid var(--hair); color: var(--ink); }
+  ul.pts li:first-child { border-top: 1px solid var(--ink); }
+  ul.pts li::before { content: counter(item, decimal-leading-zero); counter-increment: item; position: absolute; left: 0; top: 33px;
+                      font-size: 12px; font-weight: 500; letter-spacing: .2em; color: var(--mute); }
+
+  footer { margin-top: auto; height: 64px; flex: none; border-top: 1px solid var(--hair); display: flex; align-items: center;
+           justify-content: space-between; font-size: 11px; font-weight: 500; letter-spacing: .24em; text-transform: uppercase; color: var(--mute); }
+  footer .n { color: var(--ink); letter-spacing: .18em; }
+
+  /* formula and side notes */
+  .formula { font-size: 26px; line-height: 1.75; padding: 18px 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair);
+             color: var(--ink); font-weight: 400; }
+  .formula sup { font-size: .62em; }
+  .side { flex: 0 0 330px; display: flex; flex-direction: column; gap: 26px; }
+  .side p { font-size: 21px; line-height: 1.5; }
+  .stat { border-top: 1px solid var(--ink); padding-top: 16px; }
+  .big { font-weight: 200; font-size: 64px; letter-spacing: -.03em; line-height: 1; color: var(--ink); }
+  .stat .lbl { font-size: 12px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; color: var(--mute); margin-top: 12px; line-height: 1.6; }
+
+  /* cover */
+  .cover-main { display: flex; gap: 48px; align-items: center; flex: 1; min-height: 0; margin-top: 24px; }
+  .cover-main .col { flex: 0 0 640px; }
+  .title-big { font-weight: 200; font-size: 84px; line-height: 1.08; letter-spacing: -.035em; color: var(--ink); }
+  .cover .lede { font-size: 26px; margin-top: 36px; color: var(--mute); }
+  .cover .fig { height: 560px; flex: 1; }
+  .authors { margin-bottom: 36px; font-size: 13px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: var(--ink); }
+  .authors span { color: var(--mute); }
+
+  #prog { position: fixed; left: 0; bottom: 0; height: 2px; background: var(--accent); z-index: 5; transition: width .2s; }
+
+  @media print {
+    @page { size: 1600px 900px; margin: 0; }
+    html, body { background: #fff; overflow: visible; height: auto; }
+    #stage { position: static; transform: none !important; width: 1600px; height: auto; }
+    .slide { display: flex !important; position: relative; page-break-after: always; break-after: page; }
+    #prog { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1 · question -->
+<section class="slide cover">
+  <div class="kicker">MIT 6.7910 · Fall 2026 · Project 27, group 8</div>
+  <div class="cover-main">
+    <div class="col">
+      <div class="title-big">Why does Muon train faster than AdamW?</div>
+      <p class="lede">A 14M-parameter GPT on TinyStories, cross-entropy loss. Both optimizers start from the same weights and see the same batches, on five data orders.</p>
+    </div>
+    <div class="fig"><img src="img/speed.svg" alt="Validation loss against training step, mean of five data orders: Muon ends at 1.309, AdamW at 1.344, and Muon reaches AdamW's final loss by step 7500"></div>
+  </div>
+  <div class="authors">Víctor Conchello <span>·</span> Juntang Wang</div>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 2 · metrics -->
+<section class="slide">
+  <div class="kicker">02 · What differs</div>
+  <h1>At equal loss, AdamW and Muon differ in weights, updates and curvature, but not in predictions</h1>
+  <div class="body"><div class="fig"><img src="img/metrics.svg" alt="AdamW's value divided by Muon's for eight metrics at training loss 1.81"></div></div>
+  <p class="cap">Both at training loss 1.81 (AdamW near step 1450, Muon near step 860). Mean of data orders 0–2; bars: range over the orders.</p>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 3 · smoothed Muon -->
+<section class="slide">
+  <div class="kicker">03 · Smoothed Muon</div>
+  <h1>Making Muon's consecutive steps as alike as AdamW's barely changes its speed or its weights</h1>
+  <p class="lede s">Smoothed Muon steps along a running average of Muon's orthogonalized updates, tuned so that the cosine between consecutive steps is AdamW's. So this cosine does not explain Muon's speed.</p>
+  <div class="body"><div class="fig"><img src="img/smoothed.svg" alt="AdamW's and smoothed Muon's values divided by Muon's: smoothed Muon matches AdamW only in the cosine of consecutive updates"></div></div>
+  <p class="cap">Metrics at training loss 1.81, mean of data orders 0–2. Steps: mean validation loss of 5 data orders, models saved every 250 steps.</p>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 4 · power p -->
+<section class="slide">
+  <div class="kicker">04 · Singular-value power</div>
+  <h1>A power p = −0.3 on the momentum's singular values beats Muon (p = 0) per step</h1>
+  <div class="body">
+    <div class="fig"><img src="img/power.svg" alt="Final validation loss against the power p: lowest at p = -0.3, 1.3002, below p = 0 (Muon), 1.3046"></div>
+    <div class="side">
+      <div class="formula">M = U S V<sup>⊤</sup> → U S<sup>p</sup> V<sup>⊤</sup></div>
+      <p>M: Muon's momentum. The update keeps Muon's norm.</p>
+      <div class="stat"><div class="big">1.3027</div><div class="lbl">p = −0.3, data orders 0–2<br>Muon: 1.3086</div></div>
+      <div class="stat"><div class="big">10×</div><div class="lbl">time per step of the exact SVD<br>against Muon's</div></div>
+    </div>
+  </div>
+  <p class="cap">Exact SVD, data order 0, learning rate 0.01 (Muon's). p = 1 would keep the momentum's spectrum as it is (not run); it is not AdamW.</p>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 5 · cheap approximations -->
+<section class="slide">
+  <div class="kicker">05 · Cost</div>
+  <h1>Per step, cheap versions of p = −0.3 can beat Muon; per GPU minute, none does</h1>
+  <p class="lede s">LC<i>k</i> sums the first <i>k</i> Newton–Schulz iterates with weights fitted to s<sup>−0.3</sup>; Gram LC does the same on the Gram matrix.</p>
+  <div class="body"><div class="fig"><img src="img/cost.svg" alt="Final validation loss and GPU minutes to AdamW's final loss for Muon, LC5, LC8, LC12, Gram LC and the exact SVD"></div></div>
+  <p class="cap">Large dots: means over data orders (n = 5 unless noted); small dots: single orders. Time per step on one L40S: Muon 110 ms, LC5 112, LC8 125, LC12 134, Gram LC 118; exact SVD 1081 (older code).</p>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 6 · paths -->
+<section class="slide">
+  <div class="kicker">06 · Paths</div>
+  <h1>Muon takes a nearby but different path, and travels it faster</h1>
+  <div class="body"><div class="fig"><img src="img/paths.svg" alt="Left: 2-D map of the prediction paths of AdamW and Muon. Right: distance between predictions against step"></div></div>
+  <p class="cap">Left: densMAP of each run's next-token predictions, data orders 0–2. Right: Jensen–Shannon divergence between predictions on held-out text, mean of 5 data orders. Compared at equal loss, AdamW and Muon are farther apart than at equal step (0.131 against 0.102 bits at step 1000), so Muon does not just run AdamW's path faster.</p>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 7 · level paths -->
+<section class="slide">
+  <div class="kicker">07 · Landscape</div>
+  <h1 class="sm">The loss landscape between AdamW and Muon is rougher than between two runs of one optimizer, most of all early on</h1>
+  <div class="body"><div class="fig"><img src="img/level_paths.svg" alt="Barrier on the straight line and detour of a constant-loss walk against the loss level, for AdamW vs Muon and for two runs of one optimizer"></div></div>
+  <p class="cap">Two models at the same training loss. Left: highest rise of the loss on the straight line between them. Right: extra length of a walk from one to the other that stays at that loss; shown where every walk got there.</p>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+<!-- 8 · conclusion -->
+<section class="slide">
+  <div class="kicker">08 · Conclusion</div>
+  <h1>The spectrum of the update changes training speed; how alike consecutive steps are barely does</h1>
+  <div class="body" style="align-items:flex-start;margin-top:56px">
+    <ul class="pts col">
+      <li>Muon's weights, curvature and update cosine differ from AdamW's. Given AdamW's cosine, Muon is still fast.</li>
+      <li>A power p = −0.3 on the singular values beats Muon per step. None of our cheaper versions beats it in GPU time.</li>
+      <li>AdamW and Muon take nearby paths, but the landscape between them is rougher than between two runs of one optimizer.</li>
+    </ul>
+  </div>
+  <footer><span>Why Muon trains faster than AdamW</span><span class="n"></span></footer>
+</section>
+
+</div>
+<div id="prog"></div>
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  const TOTAL = slides.length;
+  const stage = document.getElementById('stage');
+  const prog = document.getElementById('prog');
+  slides.forEach((s, i) => { const n = s.querySelector('footer .n'); if (n) n.textContent = String(i + 1).padStart(2, '0') + ' / ' + String(TOTAL).padStart(2, '0'); });
+  let cur = Math.min(Math.max(parseInt(location.hash.slice(1), 10) - 1 || 0, 0), slides.length - 1);
+  function fit() {
+    const k = Math.min(innerWidth / 1600, innerHeight / 900);
+    stage.style.transform = `translate(-50%, -50%) scale(${k})`;
+  }
+  function show(i) {
+    cur = Math.min(Math.max(i, 0), slides.length - 1);
+    slides.forEach((s, j) => s.classList.toggle('on', j === cur));
+    prog.style.width = ((cur + 1) / TOTAL * 100) + '%';
+    history.replaceState(null, '', '#' + (cur + 1));
+  }
+  addEventListener('keydown', e => {
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(cur + 1); }
+    if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(cur - 1); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+    if (e.key === 'f') document.documentElement.requestFullscreen?.();
+  });
+  addEventListener('click', e => { if (e.clientX > innerWidth / 3) show(cur + 1); else show(cur - 1); });
+  addEventListener('resize', fit);
+  addEventListener('hashchange', () => show(parseInt(location.hash.slice(1), 10) - 1 || 0));
+  fit(); show(cur);
+</script>
+</body>
+</html>
