@@ -1160,9 +1160,13 @@ def cmd_work(args):
             time.sleep(60)
 
 
-STYLE = {'adamw-muon': dict(color='C0', ls='-', label='AdamW vs Muon (mean of orders 0, 1)'),
-         'adamw_d0-d1': dict(color='0.25', ls='-', label='AdamW, orders 0 vs 1'),
-         'muon_d0-d1': dict(color='0.6', ls='-', label='Muon, orders 0 vs 1')}
+STYLE = {'adamw-muon': dict(color='C0', ls='-', label='AdamW vs Muon'),  # the groups of pairs (see group)
+         'adamw': dict(color='0.25', ls='-', label='AdamW vs AdamW'),
+         'muon': dict(color='0.6', ls='-', label='Muon vs Muon')}
+
+
+def group(pair):
+    return 'adamw-muon' if pair.startswith('adamw-muon') else pair.split('_')[0]
 
 
 def collect(out_dirs):
@@ -1215,20 +1219,26 @@ def _series(ax, x, y, ok, st, marker='o'):
     ax.plot(x[~ok], y[~ok], marker, ms=3, mfc='w', color=st['color'])
 
 
-def _lines(recs, f, name):
-    """{series of STYLE: (x, y per panel, ok)} against the level, from f(record) = (value per panel, ok); AdamW vs Muon
-    is the mean of its two data orders, at the levels where both have a value (the others are printed), ok where both
-    are."""
+def _lines(recs, f):
+    """{group of STYLE: (x, y per panel, ok per panel, legend label)} against the level, from f(record) = (value per
+    panel, valid?): per level, the mean over the group's pairs that have a value (NaN: none), valid where all of them
+    are; the label gives the number n of pairs averaged (a range if it varies)."""
     out = {}
-    for pair, rs in recs.items():
-        v = [f(r) for r in rs]
-        out[pair] = (np.array([r['probe'] for r in rs]), np.array([y for y, _ in v], dtype=float).T,
-                     np.array([k for _, k in v]))
-    assert [r['level'] for r in recs['adamw-muon_d0']] == [r['level'] for r in recs['adamw-muon_d1']]
-    (x0, y0, k0), (x1, y1, k1) = out.pop('adamw-muon_d0'), out.pop('adamw-muon_d1')
-    for i, j in zip(*np.nonzero(np.isnan(y0) != np.isnan(y1))):
-        print(f'{name}, value {i}: no AdamW vs Muon mean at loss {(x0[j] + x1[j]) / 2:.2f} (only one order has it)')
-    return {'adamw-muon': ((x0 + x1) / 2, (y0 + y1) / 2, k0 & k1), **out}
+    for g in STYLE:
+        rs = [r for pair, rr in recs.items() if group(pair) == g for r in rr]
+        x, Y, OK, ns = [], [], [], set()
+        for lv in sorted({r['level'] for r in rs}, reverse=True):
+            at = [r for r in rs if r['level'] == lv]
+            v = [f(r) for r in at]
+            y, ok = np.array([a for a, _ in v], dtype=float), np.array([k for _, k in v])  # pairs x panels, pairs
+            has = ~np.isnan(y)
+            x.append(np.mean([r['probe'] for r in at]))
+            Y.append([y[h, i].mean() if h.any() else np.nan for i, h in enumerate(has.T)])
+            OK.append([ok[h].all() for h in has.T])
+            ns |= {int(h.sum()) for h in has.T if h.any()}
+        n = f'{min(ns)}\u2013{max(ns)}' if len(ns) > 1 else str(max(ns, default=0))
+        out[g] = (np.array(x), np.array(Y).T, np.array(OK).T, f"{STYLE[g]['label']} (n={n})")
+    return out
 
 
 def _finish(fig, axes, recs, h, labels, out):
@@ -1259,7 +1269,7 @@ def _finish(fig, axes, recs, h, labels, out):
 
 
 def cmd_plot(args):
-    """Against the level, with open markers where max |L - c| > TAU:
+    """Against the level, per group of pairs the mean over its pairs (_lines); open markers: max |L - c| > TAU.
     Fig. 1 (--out): the N=20 paths' length ratio in weights, held-out max |L - c| and length in weights;
     <out>_line.pdf (Fig. 2): the straight line's rise and distance / distance from init;
     <out>_robust.pdf (Fig. 3): the level-set walks' length ratio in weights (only those that reached b; triangles on a
@@ -1284,28 +1294,29 @@ def cmd_plot(args):
         return (b['ratio'] - 1, b['max_dev'], sum(b['seg'])), b['max_dev'] <= TAU
 
     fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
-    for k, (x, ys, ok) in _lines(recs, fig1, 'Fig. 1').items():
-        for ax, y in zip(axes, ys):
+    lines = _lines(recs, fig1)
+    for k, (x, ys, oks, _) in lines.items():
+        for ax, y, ok in zip(axes, ys, oks):
             _series(ax, x, y, ok, STYLE[k])
     axes[0].set(yscale='log', ylabel=f'$\\tau$ = {TAU:g}', title='length / distance $-$ 1 (weights)')
     gap_axis(axes[1])
     axes[2].set(title='path length (weights, $\\ell_2$)')
-    names = [STYLE[k]['label'] for k in STYLE]
+    names = lambda: [lines[k][3] for k in STYLE]
     marks = [plt.Line2D([], [], color='k', marker='o', ms=3, ls=''),
              plt.Line2D([], [], color='k', marker='o', ms=3, mfc='w', ls='')]
     h = [plt.Line2D([], [], color=STYLE[k]['color'], ls=STYLE[k]['ls'], lw=0.9) for k in STYLE]
-    _finish(fig, axes.ravel(), recs, h + marks, names + ['within $\\tau$', 'missed $\\tau$'], args.out)
+    _finish(fig, axes.ravel(), recs, h + marks, names() + ['within $\\tau$', 'missed $\\tau$'], args.out)
 
     out = Path(args.out)
     h = [plt.Line2D([], [], color=STYLE[k]['color'], marker='o', ms=3, lw=0.9) for k in STYLE]
     fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
-    for k, (x, ys, ok) in _lines(recs, lambda r: ((r['prof']['rise'], r['prof']['rel_distance']['all']), True),
-                                 'Fig. 2').items():
-        for ax, y in zip(axes, ys):
+    lines = _lines(recs, lambda r: ((r['prof']['rise'], r['prof']['rel_distance']['all']), True))
+    for k, (x, ys, oks, _) in lines.items():
+        for ax, y, ok in zip(axes, ys, oks):
             _series(ax, x, y, ok, STYLE[k])
     axes[0].set(title='rise: max $L - c$ (nats)')
     axes[1].set(title='distance / mean distance from init')
-    _finish(fig, axes, recs, h, names, out.with_name(out.stem + '_line.pdf'))
+    _finish(fig, axes, recs, h, names(), out.with_name(out.stem + '_line.pdf'))
 
     def fig3(r):  # the walk's detour (if it reached b), gap and % of the distance left (if it did not); within TAU?
         b = r['walk']
@@ -1317,15 +1328,16 @@ def cmd_plot(args):
 
     fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
     left = axes[0].twinx()
-    for k, (x, ys, ok) in _lines(recs, fig3, 'Fig. 3').items():
-        for ax, y in zip(axes, ys):
+    lines = _lines(recs, fig3)
+    for k, (x, ys, oks, _) in lines.items():
+        for ax, y, ok in zip(axes, ys, oks):
             _series(ax, x, y, ok, STYLE[k])
-        _series(left, x, ys[2], ok, STYLE[k], '^')
+        _series(left, x, ys[2], oks[2], STYLE[k], '^')
     left.set(ylim=(0, 100), ylabel='distance left to $\\theta_B$ (%)')
     axes[0].set(yscale='log', ylabel='level-set walk', title='length / distance $-$ 1 (weights)')
     gap_axis(axes[1])
     _finish(fig, axes, recs, h + marks + [plt.Line2D([], [], color='k', marker='^', ms=3, ls='')],
-            names + [f'within $\\tau$ = {TAU:g}', 'missed $\\tau$', 'distance left (right axis)'],
+            names() + [f'within $\\tau$ = {TAU:g}', 'missed $\\tau$', 'distance left (right axis)'],
             out.with_name(out.stem + '_robust.pdf'))
 
 
