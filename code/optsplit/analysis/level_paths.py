@@ -1017,7 +1017,7 @@ def task_list(A, args):
     """The work of results/level_paths.tex in priority order, as (tier, kind, select file, output dir, level, pair, n,
     perturbation seed). The late level uses the ts10m_main checkpoints (select_main.json), the others the reruns
     (select.json; a level's 'ref' is the AdamW d0 checkpoint that defines it). Tiers 1-5 cover the FIRST pairs (data
-    orders 0 and 1), tier 6 the other PAIRS: profiles, N=20 bands (not at the late level) and walks at the levels of
+    orders 0 and 1), tier 6 the other PAIRS: profiles, walks and N=20 bands (not at the late level) at the levels of
     tiers 1-4, once the select files pair them. Tier 1: profiles and N=10 bands at the
     late level and at AdamW steps 5000 and 397; tier 2: the same at steps 1440, 3300 and 7500; tier 3: N=20 bands,
     bent starts (step 1440, AdamW vs Muon, order 0) and walks at these six levels; tier 4: everything at steps 272
@@ -1048,9 +1048,9 @@ def task_list(A, args):
               for kind, n in (('profile', None), ('band', 10), ('band', 20), ('walk', None)) for pair in FIRST]
     new = [((f, d), level, pair) for (f, d), level in six + levels[4] for pair in PAIRS
            if pair not in FIRST and pair in json.loads(f.read_text())[level]['pairs']]
-    T += [(6, 'profile', f, d, level, pair, None, None) for (f, d), level, pair in new]
-    T += [(6, 'band', f, d, level, pair, 20, None) for (f, d), level, pair in new if d != main[1]]
+    T += [(6, 'profile', f, d, level, pair, None, None) for (f, d), level, pair in new]  # the cheap ones first
     T += [(6, 'walk', f, d, level, pair, None, None) for (f, d), level, pair in new]
+    T += [(6, 'band', f, d, level, pair, 20, None) for (f, d), level, pair in new if d != main[1]]
     return T
 
 
@@ -1083,7 +1083,8 @@ def cmd_work(args):
     environment, stops (exit 0) instead of taking a new task while a job of the user that is not a level-paths one
     waits, unheld, for this job's partition; with YIELD=limit, only while it waits for a per-user limit (QOS...,
     Assoc...: it would start if this job ended). A task that ran out of GPU memory (its .oom file holds the largest
-    GPU it failed on) is left to larger GPUs."""
+    GPU it failed on) is left to larger GPUs, and a band starts only with --band-free GB of GPU memory free (one
+    band of up to 40 points takes about 30 GB, and two already keep an A100 busy)."""
     global RESTART
     A = Path(args.dir)
     RESTART, model, sets = A / 'restart_workers', None, None
@@ -1106,9 +1107,14 @@ def cmd_work(args):
                 return 0
         T = [t for t in task_list(A, args)
              if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
+        short = False  # a band left for want of free GPU memory (other workers' bands hold it): wait, do not exit
         for t in T:
             f = task_out(t, args)
             oom = Path(f).with_suffix('.oom')
+            free = torch.cuda.mem_get_info()[0] if gpu else math.inf
+            if t[1] == 'band' and not Path(f).exists() and free < args.band_free * 2 ** 30:
+                short = True
+                continue
             if oom.exists() and float(oom.read_text()) >= gpu or not claim(f):
                 continue
             _, kind, sel, _, level, pair, n, seed = t
@@ -1142,6 +1148,9 @@ def cmd_work(args):
                 print('TIER 1 DONE', flush=True)
             break
         else:  # nothing to take now
+            if short:
+                time.sleep(120)
+                continue
             if (A / 'select.json').exists():
                 return 0
             if not reruns_alive(A):
@@ -1447,6 +1456,7 @@ def main():
     s.add_argument('dir', help='the analysis directory (select_main.json, select.json, outputs)')
     s.add_argument('--max-tier', type=int, default=4)
     s.add_argument('--min-tier', type=int, default=1)
+    s.add_argument('--band-free', type=float, default=32, help='GB of free GPU memory a band needs to start')
     s.add_argument('--kinds', nargs='*', help='only these kinds of tasks (profile, band, band01, walk)')
     s.add_argument('--perturb', type=float, default=0.1)
     band_args(s)

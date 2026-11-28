@@ -33,6 +33,7 @@ LEVELS="397 5000 1440 3300 7500 272 680 10000"
 GPU=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)
 MEM=${GPU##*, }
 if [ "$MEM" -ge 90000 ]; then W=4; elif [ "$MEM" -ge 70000 ]; then W=3; else W=2; fi  # up to 40 points each
+[ -s $A/workers.$(( MEM / 1000 )) ] && W=$(cat $A/workers.$(( MEM / 1000 )))  # measured: workers per GPU of MEM/1000 GB
 WORKERS=${WORKERS:-$W}
 MAXTIER=${MAXTIER:-4}
 MINTIER=${MINTIER:-1}
