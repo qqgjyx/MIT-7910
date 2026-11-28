@@ -1075,6 +1075,12 @@ def reruns_alive(A):
     return (lock.exists() and recent(lock)) or any(recent(f) for f in R.rglob('*') if f.exists())
 
 
+def _holder(out):
+    """The Slurm job that holds the lock of output `out`, or None."""
+    with contextlib.suppress(FileNotFoundError):
+        return Path(out).with_suffix('.lock').read_text().split(':')[0]
+
+
 def cmd_work(args):
     """One worker: repeatedly takes the first task of task_list (tiers <= --max-tier) that nobody holds and does it.
     While select.json is missing, waits (checking every minute that the reruns or the selection are progressing).
@@ -1083,8 +1089,8 @@ def cmd_work(args):
     environment, stops (exit 0) instead of taking a new task while a job of the user that is not a level-paths one
     waits, unheld, for this job's partition; with YIELD=limit, only while it waits for a per-user limit (QOS...,
     Assoc...: it would start if this job ended). A task that ran out of GPU memory (its .oom file holds the largest
-    GPU it failed on) is left to larger GPUs, and a band starts only with --band-free GB of GPU memory free (one
-    band of up to 40 points takes about 30 GB, and two already keep an A100 busy)."""
+    GPU it failed on) is left to larger GPUs. A GPU runs at most memory // --band-gb bands at once (two already keep
+    an A100 busy), and its other workers take the cheaper tasks or wait."""
     global RESTART
     A = Path(args.dir)
     RESTART, model, sets = A / 'restart_workers', None, None
@@ -1108,12 +1114,15 @@ def cmd_work(args):
                 return 0
         T = [t for t in task_list(A, args)
              if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
-        short = False  # a band left for want of free GPU memory (other workers' bands hold it): wait, do not exit
+        # bands of this job (one GPU) against the room for them: a band of up to 40 points takes about --band-gb
+        job = me.split(':')[0]
+        room = max(1, int(gpu // (args.band_gb * 2 ** 30))) - sum(
+            _holder(task_out(u, args)) == job for u in T if u[1] == 'band')
+        short = False  # a band left for want of room: wait for it instead of exiting
         for t in T:
             f = task_out(t, args)
             oom = Path(f).with_suffix('.oom')
-            free = torch.cuda.mem_get_info()[0] if gpu else math.inf
-            if t[1] == 'band' and not Path(f).exists() and free < args.band_free * 2 ** 30:
+            if t[1] == 'band' and room <= 0 and not Path(f).exists():
                 short = True
                 continue
             if oom.exists() and float(oom.read_text()) >= gpu or not claim(f):
@@ -1143,6 +1152,8 @@ def cmd_work(args):
                 release(f)
                 return 0
             release(f)
+            if gpu:
+                torch.cuda.empty_cache()  # an idle worker leaves the memory to the bands of the others
             if (A / 'select.json').exists() and not (A / 'tier1_done').exists() and \
                     all(task_out(u, args).exists() for u in task_list(A, args) if u[0] == 1):
                 (A / 'tier1_done').write_text(time.strftime('%Y-%m-%d %H:%M:%S\n'))
@@ -1469,7 +1480,7 @@ def main():
     s.add_argument('dir', help='the analysis directory (select_main.json, select.json, outputs)')
     s.add_argument('--max-tier', type=int, default=4)
     s.add_argument('--min-tier', type=int, default=1)
-    s.add_argument('--band-free', type=float, default=32, help='GB of free GPU memory a band needs to start')
+    s.add_argument('--band-gb', type=float, default=36, help='GPU memory per band: a GPU runs total // this at once')
     s.add_argument('--kinds', nargs='*', help='only these kinds of tasks (profile, band, band01, walk)')
     s.add_argument('--perturb', type=float, default=0.1)
     band_args(s)
