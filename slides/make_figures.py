@@ -142,8 +142,8 @@ def extract_metrics(path, level=1.81):
 def extract_level_paths(dirs):
     """data/level_paths.json: per loss level (the AdamW order-0 step that defines it) and pair group, the straight
     line's rise, the level-set walk's detour (length / distance - 1; None where it stopped short) and the 20-point
-    constant-loss path's detour and length in weights (band/*_n20). A pair found in several dirs is taken from the
-    last."""
+    constant-loss path's detour and length in weights (band/*_n20), each for the pairs that have it. A pair found in
+    several dirs is taken from the last."""
     found, bands = {}, {}
     for d in map(Path, dirs):
         for f in (d / 'profile').glob('*.json'):
@@ -162,13 +162,14 @@ def extract_level_paths(dirs):
         level, pair = stem.split('_', 1)
         prof = json.loads(f.read_text())
         w = f.parent.parent / 'walk' / f'{stem}_pc.json'
-        walk = json.loads(w.read_text()) if w.exists() else None
         group = 'adamw-muon' if pair.startswith('adamw-muon') else pair.split('_')[0]
         r = levels.setdefault(level, dict(rise={}, walk={}, path={}, length={}))
         if '/adamw_d0:' in prof['a']:
             r['step'] = int(prof['a'].rsplit(':', 1)[1])
         r['rise'].setdefault(group, []).append(prof['rise'])
-        r['walk'].setdefault(group, []).append(walk['ratio'] - 1 if walk and walk['reached'] else None)
+        if w.exists():
+            walk = json.loads(w.read_text())
+            r['walk'].setdefault(group, []).append(walk['ratio'] - 1 if walk['reached'] else None)
     out = sorted(({'level': float(k), **v} for k, v in levels.items()), key=lambda r: r['step'])
     (DATA / 'level_paths.json').write_text(json.dumps(dict(source=[str(d) for d in dirs], levels=out), indent=1))
 
@@ -500,21 +501,26 @@ def fig_paths_loss():
     save(fig, 'paths_loss.svg')
 
 
+def pair_label(lv, g, name, key, what):
+    """'name (n pairs)' from the straight lines; with '; what: m' where `key` has data for fewer pairs."""
+    n, m = (max(len(r[k].get(g, [])) for r in lv) for k in ('rise', key))
+    return f'{name} ({n} pair{"s" * (n > 1)}' + (f'; {what}: {m})' if m != n else ')')
+
+
 def fig_level_paths():
     """Slide 7: between two models at the same loss, the straight line's barrier and the level-set walk's detour,
     against the loss level (equally spaced); AdamW vs Muon and the two floors, means over their pairs (band: range).
     The detour is shown at the levels where every walk reached the other model."""
     lv = load('level_paths.json')['levels']
     style = {'adamw-muon': (INK, 'AdamW vs Muon'), 'adamw': (ADAMW, 'two AdamW runs'), 'muon': (MUON, 'two Muon runs')}
-    npairs = {g: len(lv[0]['rise'][g]) for g in style}
-    reached = [i for i, r in enumerate(lv) if all(w is not None for g in style for w in r['walk'][g])]
+    reached = [i for i, r in enumerate(lv) if all(r['walk'].get(g) and None not in r['walk'][g] for g in style)]
     fig, axes = figure(1392, 540, ncols=2, gridspec_kw=dict(wspace=0.22, width_ratios=(len(lv), len(reached) + 1)))
     for g, (c, name) in style.items():
         lw = 2.8 if g == 'adamw-muon' else 2
         for ax, idx, key, scale in ((axes[0], range(len(lv)), 'rise', 1), (axes[1], reached, 'walk', 100)):
             y = np.maximum(scale * np.array([lv[i][key][g] for i in idx], dtype=float), 1e-3)  # walk: >= 0.001%
             ax.plot(range(len(y)), y.mean(1), color=c, lw=lw, marker='o', ms=8, mec='white', mew=1,
-                    label=f'{name} ({npairs[g]} pair{"s" * (npairs[g] > 1)})' if ax is axes[0] else None)
+                    label=pair_label(lv, g, name, 'walk', 'walks') if ax is axes[0] else None)
             if y.shape[1] > 1:
                 ax.fill_between(range(len(y)), y.min(1), y.max(1), color=c, alpha=0.12, lw=0)
     for ax, idx in ((axes[0], range(len(lv))), (axes[1], reached)):
@@ -534,7 +540,6 @@ def fig_landscape():
     the 20-point constant-loss path (level_paths.pdf Fig. 1a and c); means over the pairs of a group (band: range)."""
     lv = load('level_paths.json')['levels']
     style = {'adamw-muon': (INK, 'AdamW vs Muon'), 'adamw': (ADAMW, 'two AdamW runs'), 'muon': (MUON, 'two Muon runs')}
-    npairs = {g: len(lv[0]['rise'][g]) for g in style}
     fig, axes = figure(1392, 520, ncols=3, gridspec_kw=dict(wspace=0.3))
     panels = (('rise', 1, 'Barrier on the straight line (nats)'), ('path', 100, 'Detour of a constant-loss path (%)'),
               ('length', 1, 'Length of that path in weights'))
@@ -543,7 +548,7 @@ def fig_landscape():
             idx = [i for i, r in enumerate(lv) if r.get(key, {}).get(g)]
             y = scale * np.array([lv[i][key][g] for i in idx], dtype=float)
             ax.plot(idx, y.mean(1), color=c, lw=2.8 if g == 'adamw-muon' else 2, marker='o', ms=8, mec='white', mew=1,
-                    label=f'{name} ({npairs[g]} pair{"s" * (npairs[g] > 1)})' if ax is axes[0] else None)
+                    label=pair_label(lv, g, name, 'path', 'paths') if ax is axes[0] else None)
             if y.shape[1] > 1:
                 ax.fill_between(idx, y.min(1), y.max(1), color=c, alpha=0.12, lw=0)
         ax.set_title(title, loc='left', fontsize=15, color=TEXT, pad=12)
