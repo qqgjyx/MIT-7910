@@ -30,7 +30,7 @@ same data order) are farther apart than two runs of one optimizer that differ on
 pair the \emph{floor}: it shows how far apart runs land by chance. From 3\% to 75\% (no paths were run at 100\%), AdamW and
 Muon are joined by a constant-loss path; all paths and level-set walks stay within 0.05 nats of the level. Values are
 means over the pairs of each group, as in the figures: all 25 pairs for the straight line and the walks (5 AdamW--Muon
-pairs, one per data order, and 10 pairs per floor); so far 2 AdamW--Muon pairs and one pair per floor for the paths.
+pairs, one per data order, and 10 pairs per floor); for the paths, the pairs finished so far (2--5 AdamW--Muon pairs and 1--10 per floor, depending on the level).
 \begin{itemize}\setlength{\itemsep}{0pt}
 \item \textbf{Farther apart.} Their distance, divided by the mean distance each model travelled from the
 initialization, is 1.13--1.39 against 0.68--1.24 for the floor. Along the straight line between them the loss rises
@@ -48,7 +48,7 @@ detour exceeds every floor pair's (\cref{fig:walks}); later, most walks stop sho
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths.pdf}
 \caption{Constant-loss paths ($N=20$ points) against the loss level; the labels on top give the level as a
 fraction of AdamW's training (no paths were run at 100\%). Each line is the mean over a group's
-pairs (n in the legend). Blue: AdamW vs Muon, same data order. Grey: the floor, two data orders of one optimizer. (a) Path length in weights over the straight-line
+pairs (n in the legend); the new pairs' paths are still running, so n varies by level. Blue: AdamW vs Muon, same data order. Grey: the floor, two data orders of one optimizer. (a) Path length in weights over the straight-line
 distance, minus 1 (log scale). (b) Gap: the largest held-out deviation of the loss from its target along the path;
 dotted: $\tau = 0.05$, which every path meets. (c) Path length, in the units of $\|\theta_A - \theta_B\|_2$.}
 \label{fig:paths}
