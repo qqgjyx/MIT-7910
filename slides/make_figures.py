@@ -502,9 +502,12 @@ def fig_paths_loss():
 
 
 def pair_label(lv, g, name, key, what):
-    """'name (n pairs)' from the straight lines; with '; what: m' where `key` has data for fewer pairs."""
-    n, m = (max(len(r[k].get(g, [])) for r in lv) for k in ('rise', key))
-    return f'{name} ({n} pair{"s" * (n > 1)}' + (f'; {what}: {m})' if m != n else ')')
+    """'name (n pairs)' from the straight lines; with '; what: m' (or 'lo-hi' across the levels) where `key` has
+    data for fewer pairs."""
+    n = max(len(r['rise'].get(g, [])) for r in lv)
+    m = sorted({len(r[key][g]) for r in lv if r[key].get(g)})
+    m = f'{m[0]}' if len(m) == 1 else f'{m[0]}–{m[-1]}'
+    return f'{name} ({n} pair{"s" * (n > 1)}' + (f'; {what}: {m})' if m != str(n) else ')')
 
 
 def fig_level_paths():
@@ -546,11 +549,10 @@ def fig_landscape():
     for ax, (key, scale, title) in zip(axes, panels):
         for g, (c, name) in style.items():
             idx = [i for i, r in enumerate(lv) if r.get(key, {}).get(g)]
-            y = scale * np.array([lv[i][key][g] for i in idx], dtype=float)
-            ax.plot(idx, y.mean(1), color=c, lw=2.8 if g == 'adamw-muon' else 2, marker='o', ms=8, mec='white', mew=1,
-                    label=pair_label(lv, g, name, 'path', 'paths') if ax is axes[0] else None)
-            if y.shape[1] > 1:
-                ax.fill_between(idx, y.min(1), y.max(1), color=c, alpha=0.12, lw=0)
+            y = [scale * np.array(lv[i][key][g]) for i in idx]  # the number of pairs can differ between levels
+            ax.plot(idx, [v.mean() for v in y], color=c, lw=2.8 if g == 'adamw-muon' else 2, marker='o', ms=8,
+                    mec='white', mew=1, label=pair_label(lv, g, name, 'path', 'paths') if ax is axes[0] else None)
+            ax.fill_between(idx, [v.min() for v in y], [v.max() for v in y], color=c, alpha=0.12, lw=0)
         ax.set_title(title, loc='left', fontsize=15, color=TEXT, pad=12)
         ax.set_xticks(range(len(lv)), [f'{round(r["step"] / 100)}%' for r in lv], fontsize=12)
         ax.set_xlim(-0.4, len(lv) - 0.6)
