@@ -3,21 +3,45 @@
   "ref": "ts10m_level_paths/adamw_d0:397",
   "c": 2.306687742471695,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:397",
-    2.306687742471695
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:278",
+    2.3081121146678925
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:278",
+    2.305931717157364
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:278",
     2.3044374585151672
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:278",
+    2.306947112083435
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:397",
+    2.3045478761196136
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:403",
     2.3063094913959503
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:278",
-    2.306947112083435
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:397",
+    2.306687742471695
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:400",
+    2.309031456708908
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:276",
+    2.309132754802704
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:397",
+    2.309593081474304
    ]
   },
   "pairs": {
@@ -40,6 +64,111 @@
     "ts10m_level_paths/muon_d0:278",
     "ts10m_level_paths/muon_d1:278",
     0.0025096535682678223
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:400",
+    "ts10m_level_paths/muon_d2:276",
+    0.00010129809379577637
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:397",
+    "ts10m_level_paths/muon_d3:278",
+    0.0014809668064117432
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:397",
+    "ts10m_level_paths/muon_d4:278",
+    0.0013838410377502441
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:397",
+    "ts10m_level_paths/adamw_d2:400",
+    0.0023437142372131348
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:397",
+    "ts10m_level_paths/adamw_d3:397",
+    0.002905339002609253
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:397",
+    "ts10m_level_paths/adamw_d4:397",
+    0.002139866352081299
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:403",
+    "ts10m_level_paths/adamw_d2:400",
+    0.0027219653129577637
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:403",
+    "ts10m_level_paths/adamw_d3:397",
+    0.003283590078353882
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:403",
+    "ts10m_level_paths/adamw_d4:397",
+    0.00176161527633667
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:400",
+    "ts10m_level_paths/adamw_d3:397",
+    0.0005616247653961182
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:400",
+    "ts10m_level_paths/adamw_d4:397",
+    0.004483580589294434
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:397",
+    "ts10m_level_paths/adamw_d4:397",
+    0.005045205354690552
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:278",
+    "ts10m_level_paths/muon_d2:276",
+    0.004695296287536621
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:278",
+    "ts10m_level_paths/muon_d3:278",
+    0.0036746561527252197
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:278",
+    "ts10m_level_paths/muon_d4:278",
+    0.0014942586421966553
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:278",
+    "ts10m_level_paths/muon_d2:276",
+    0.002185642719268799
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:278",
+    "ts10m_level_paths/muon_d3:278",
+    0.0011650025844573975
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:278",
+    "ts10m_level_paths/muon_d4:278",
+    0.001015394926071167
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:276",
+    "ts10m_level_paths/muon_d3:278",
+    0.0010206401348114014
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:276",
+    "ts10m_level_paths/muon_d4:278",
+    0.003201037645339966
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:278",
+    "ts10m_level_paths/muon_d4:278",
+    0.0021803975105285645
    ]
   }
  },
@@ -47,21 +176,45 @@
   "ref": "ts10m_level_paths/adamw_d0:5000",
   "c": 1.4576344639062881,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:5000",
-    1.4576344639062881
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:3350",
+    1.4576474279165268
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:3375",
+    1.4575403332710266
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:3325",
     1.4577290564775467
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:3400",
+    1.4565411359071732
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:4925",
+    1.457751214504242
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:5025",
     1.458129346370697
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:3400",
-    1.4565411359071732
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:5000",
+    1.4576344639062881
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:4975",
+    1.4572663009166718
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:3375",
+    1.4585716873407364
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:5125",
+    1.4561255276203156
    ]
   },
   "pairs": {
@@ -84,6 +237,111 @@
     "ts10m_level_paths/muon_d0:3325",
     "ts10m_level_paths/muon_d1:3400",
     0.0011879205703735352
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:4975",
+    "ts10m_level_paths/muon_d2:3375",
+    0.0013053864240646362
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:5125",
+    "ts10m_level_paths/muon_d3:3350",
+    0.0015219002962112427
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:4925",
+    "ts10m_level_paths/muon_d4:3375",
+    0.00021088123321533203
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:5000",
+    "ts10m_level_paths/adamw_d2:4975",
+    0.00036816298961639404
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:5000",
+    "ts10m_level_paths/adamw_d3:5125",
+    0.0015089362859725952
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:5000",
+    "ts10m_level_paths/adamw_d4:4925",
+    0.00011675059795379639
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:5025",
+    "ts10m_level_paths/adamw_d2:4975",
+    0.0008630454540252686
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:5025",
+    "ts10m_level_paths/adamw_d3:5125",
+    0.0020038187503814697
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:5025",
+    "ts10m_level_paths/adamw_d4:4925",
+    0.0003781318664550781
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:4975",
+    "ts10m_level_paths/adamw_d3:5125",
+    0.0011407732963562012
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:4975",
+    "ts10m_level_paths/adamw_d4:4925",
+    0.00048491358757019043
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:5125",
+    "ts10m_level_paths/adamw_d4:4925",
+    0.0016256868839263916
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:3325",
+    "ts10m_level_paths/muon_d2:3375",
+    0.0008426308631896973
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:3325",
+    "ts10m_level_paths/muon_d3:3350",
+    8.162856101989746e-05
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:3325",
+    "ts10m_level_paths/muon_d4:3375",
+    0.00018872320652008057
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:3400",
+    "ts10m_level_paths/muon_d2:3375",
+    0.0020305514335632324
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:3400",
+    "ts10m_level_paths/muon_d3:3350",
+    0.0011062920093536377
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:3400",
+    "ts10m_level_paths/muon_d4:3375",
+    0.0009991973638534546
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:3375",
+    "ts10m_level_paths/muon_d3:3350",
+    0.0009242594242095947
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:3375",
+    "ts10m_level_paths/muon_d4:3375",
+    0.0010313540697097778
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:3350",
+    "ts10m_level_paths/muon_d4:3375",
+    0.0001070946455001831
    ]
   }
  },
@@ -91,21 +349,45 @@
   "ref": "ts10m_level_paths/adamw_d0:1440",
   "c": 1.7499937862157822,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:1440",
-    1.7499937862157822
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:870",
+    1.7503146976232529
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:855",
+    1.7509157359600067
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:855",
     1.7526720464229584
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:870",
+    1.7483898848295212
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:1460",
+    1.7526543885469437
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:1480",
     1.7498008608818054
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:870",
-    1.7483898848295212
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:1440",
+    1.7499937862157822
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:1440",
+    1.7487383782863617
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:855",
+    1.7523951828479767
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:1460",
+    1.7518532276153564
    ]
   },
   "pairs": {
@@ -128,6 +410,111 @@
     "ts10m_level_paths/muon_d0:855",
     "ts10m_level_paths/muon_d1:870",
     0.004282161593437195
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:1440",
+    "ts10m_level_paths/muon_d2:855",
+    0.0036568045616149902
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:1460",
+    "ts10m_level_paths/muon_d3:870",
+    0.0015385299921035767
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:1460",
+    "ts10m_level_paths/muon_d4:855",
+    0.0017386525869369507
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:1440",
+    "ts10m_level_paths/adamw_d2:1440",
+    0.0012554079294204712
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:1440",
+    "ts10m_level_paths/adamw_d3:1460",
+    0.0018594413995742798
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:1440",
+    "ts10m_level_paths/adamw_d4:1460",
+    0.002660602331161499
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:1480",
+    "ts10m_level_paths/adamw_d2:1440",
+    0.0010624825954437256
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:1480",
+    "ts10m_level_paths/adamw_d3:1460",
+    0.0020523667335510254
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:1480",
+    "ts10m_level_paths/adamw_d4:1460",
+    0.0028535276651382446
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:1440",
+    "ts10m_level_paths/adamw_d3:1460",
+    0.003114849328994751
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:1440",
+    "ts10m_level_paths/adamw_d4:1460",
+    0.00391601026058197
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:1460",
+    "ts10m_level_paths/adamw_d4:1460",
+    0.0008011609315872192
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:855",
+    "ts10m_level_paths/muon_d2:855",
+    0.00027686357498168945
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:855",
+    "ts10m_level_paths/muon_d3:870",
+    0.0023573487997055054
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:855",
+    "ts10m_level_paths/muon_d4:855",
+    0.0017563104629516602
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:870",
+    "ts10m_level_paths/muon_d2:855",
+    0.004005298018455505
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:870",
+    "ts10m_level_paths/muon_d3:870",
+    0.0019248127937316895
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:870",
+    "ts10m_level_paths/muon_d4:855",
+    0.0025258511304855347
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:855",
+    "ts10m_level_paths/muon_d3:870",
+    0.002080485224723816
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:855",
+    "ts10m_level_paths/muon_d4:855",
+    0.0014794468879699707
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:870",
+    "ts10m_level_paths/muon_d4:855",
+    0.0006010383367538452
    ]
   }
  },
@@ -135,21 +522,45 @@
   "ref": "ts10m_level_paths/adamw_d0:3300",
   "c": 1.5471851974725723,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:3300",
-    1.5471851974725723
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:2100",
+    1.5479005724191666
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:2050",
+    1.549320861697197
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:2100",
     1.5454269349575043
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:2100",
+    1.5445808172225952
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:3300",
+    1.5472961366176605
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:3400",
     1.5421903431415558
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:2100",
-    1.5445808172225952
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:3300",
+    1.5471851974725723
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:3300",
+    1.5471317023038864
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:2100",
+    1.5457212775945663
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:3500",
+    1.543878361582756
    ]
   },
   "pairs": {
@@ -172,6 +583,111 @@
     "ts10m_level_paths/muon_d0:2100",
     "ts10m_level_paths/muon_d1:2100",
     0.0008461177349090576
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:3300",
+    "ts10m_level_paths/muon_d2:2100",
+    0.0014104247093200684
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:3500",
+    "ts10m_level_paths/muon_d3:2100",
+    0.0040222108364105225
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:3300",
+    "ts10m_level_paths/muon_d4:2050",
+    0.002024725079536438
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:3300",
+    "ts10m_level_paths/adamw_d2:3300",
+    5.3495168685913086e-05
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:3300",
+    "ts10m_level_paths/adamw_d3:3500",
+    0.003306835889816284
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:3300",
+    "ts10m_level_paths/adamw_d4:3300",
+    0.0001109391450881958
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:3400",
+    "ts10m_level_paths/adamw_d2:3300",
+    0.0049413591623306274
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:3400",
+    "ts10m_level_paths/adamw_d3:3500",
+    0.0016880184412002563
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:3400",
+    "ts10m_level_paths/adamw_d4:3300",
+    0.005105793476104736
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:3300",
+    "ts10m_level_paths/adamw_d3:3500",
+    0.003253340721130371
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:3300",
+    "ts10m_level_paths/adamw_d4:3300",
+    0.0001644343137741089
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:3500",
+    "ts10m_level_paths/adamw_d4:3300",
+    0.00341777503490448
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:2100",
+    "ts10m_level_paths/muon_d2:2100",
+    0.00029434263706207275
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:2100",
+    "ts10m_level_paths/muon_d3:2100",
+    0.0024736374616622925
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:2100",
+    "ts10m_level_paths/muon_d4:2050",
+    0.003893926739692688
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:2100",
+    "ts10m_level_paths/muon_d2:2100",
+    0.0011404603719711304
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:2100",
+    "ts10m_level_paths/muon_d3:2100",
+    0.00331975519657135
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:2100",
+    "ts10m_level_paths/muon_d4:2050",
+    0.004740044474601746
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:2100",
+    "ts10m_level_paths/muon_d3:2100",
+    0.0021792948246002197
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:2100",
+    "ts10m_level_paths/muon_d4:2050",
+    0.0035995841026306152
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:2100",
+    "ts10m_level_paths/muon_d4:2050",
+    0.0014202892780303955
    ]
   }
  },
@@ -179,21 +695,45 @@
   "ref": "ts10m_level_paths/adamw_d0:7500",
   "c": 1.3573396503925323,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:7500",
-    1.3573396503925323
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:5725",
+    1.3572349101305008
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:5825",
+    1.3567277640104294
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:5725",
     1.3573237359523773
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:5725",
+    1.3571131080389023
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:7525",
+    1.3572751879692078
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:7600",
     1.3568548262119293
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:5725",
-    1.3571131080389023
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:7500",
+    1.3573396503925323
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:7575",
+    1.3575860112905502
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:5775",
+    1.3581136018037796
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:7650",
+    1.3578053414821625
    ]
   },
   "pairs": {
@@ -216,6 +756,111 @@
     "ts10m_level_paths/muon_d0:5725",
     "ts10m_level_paths/muon_d1:5725",
     0.00021062791347503662
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:7575",
+    "ts10m_level_paths/muon_d2:5775",
+    0.0005275905132293701
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:7650",
+    "ts10m_level_paths/muon_d3:5725",
+    0.0005704313516616821
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:7525",
+    "ts10m_level_paths/muon_d4:5825",
+    0.0005474239587783813
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:7500",
+    "ts10m_level_paths/adamw_d2:7575",
+    0.0002463608980178833
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:7500",
+    "ts10m_level_paths/adamw_d3:7650",
+    0.00046569108963012695
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:7500",
+    "ts10m_level_paths/adamw_d4:7525",
+    6.446242332458496e-05
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:7600",
+    "ts10m_level_paths/adamw_d2:7575",
+    0.0007311850786209106
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:7600",
+    "ts10m_level_paths/adamw_d3:7650",
+    0.0009505152702331543
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:7600",
+    "ts10m_level_paths/adamw_d4:7525",
+    0.0004203617572784424
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:7575",
+    "ts10m_level_paths/adamw_d3:7650",
+    0.00021933019161224365
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:7575",
+    "ts10m_level_paths/adamw_d4:7525",
+    0.00031082332134246826
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:7650",
+    "ts10m_level_paths/adamw_d4:7525",
+    0.0005301535129547119
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:5725",
+    "ts10m_level_paths/muon_d2:5775",
+    0.0007898658514022827
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:5725",
+    "ts10m_level_paths/muon_d3:5725",
+    8.882582187652588e-05
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:5725",
+    "ts10m_level_paths/muon_d4:5825",
+    0.000595971941947937
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:5725",
+    "ts10m_level_paths/muon_d2:5775",
+    0.0010004937648773193
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:5725",
+    "ts10m_level_paths/muon_d3:5725",
+    0.00012180209159851074
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:5725",
+    "ts10m_level_paths/muon_d4:5825",
+    0.0003853440284729004
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:5775",
+    "ts10m_level_paths/muon_d3:5725",
+    0.0008786916732788086
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:5775",
+    "ts10m_level_paths/muon_d4:5825",
+    0.0013858377933502197
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:5725",
+    "ts10m_level_paths/muon_d4:5825",
+    0.0005071461200714111
    ]
   }
  },
@@ -223,21 +868,45 @@
   "ref": "ts10m_level_paths/adamw_d0:272",
   "c": 2.6033244132995605,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:272",
-    2.6033244132995605
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:214",
+    2.5994519889354706
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:214",
+    2.6075826585292816
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:214",
     2.601485639810562
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:214",
+    2.599698454141617
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:268",
+    2.598562330007553
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:270",
     2.60668683052063
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:214",
-    2.599698454141617
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:272",
+    2.6033244132995605
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:268",
+    2.6062931418418884
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:214",
+    2.599992334842682
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:266",
+    2.6073548793792725
    ]
   },
   "pairs": {
@@ -260,6 +929,111 @@
     "ts10m_level_paths/muon_d0:214",
     "ts10m_level_paths/muon_d1:214",
     0.0017871856689453125
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:268",
+    "ts10m_level_paths/muon_d2:214",
+    0.006300806999206543
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:266",
+    "ts10m_level_paths/muon_d3:214",
+    0.00790289044380188
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:268",
+    "ts10m_level_paths/muon_d4:214",
+    0.009020328521728516
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:272",
+    "ts10m_level_paths/adamw_d2:268",
+    0.002968728542327881
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:272",
+    "ts10m_level_paths/adamw_d3:266",
+    0.004030466079711914
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:272",
+    "ts10m_level_paths/adamw_d4:268",
+    0.004762083292007446
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:270",
+    "ts10m_level_paths/adamw_d2:268",
+    0.0003936886787414551
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:270",
+    "ts10m_level_paths/adamw_d3:266",
+    0.0006680488586425781
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:270",
+    "ts10m_level_paths/adamw_d4:268",
+    0.008124500513076782
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:268",
+    "ts10m_level_paths/adamw_d3:266",
+    0.0010617375373840332
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:268",
+    "ts10m_level_paths/adamw_d4:268",
+    0.007730811834335327
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:266",
+    "ts10m_level_paths/adamw_d4:268",
+    0.00879254937171936
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:214",
+    "ts10m_level_paths/muon_d2:214",
+    0.001493304967880249
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:214",
+    "ts10m_level_paths/muon_d3:214",
+    0.0020336508750915527
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:214",
+    "ts10m_level_paths/muon_d4:214",
+    0.006097018718719482
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:214",
+    "ts10m_level_paths/muon_d2:214",
+    0.0002938807010650635
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:214",
+    "ts10m_level_paths/muon_d3:214",
+    0.00024646520614624023
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:214",
+    "ts10m_level_paths/muon_d4:214",
+    0.007884204387664795
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:214",
+    "ts10m_level_paths/muon_d3:214",
+    0.0005403459072113037
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:214",
+    "ts10m_level_paths/muon_d4:214",
+    0.0075903236865997314
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:214",
+    "ts10m_level_paths/muon_d4:214",
+    0.008130669593811035
    ]
   }
  },
@@ -267,21 +1041,45 @@
   "ref": "ts10m_level_paths/adamw_d0:680",
   "c": 2.01734159886837,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:680",
-    2.01734159886837
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:420",
+    2.0189619660377502
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:420",
+    2.0130927562713623
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:417",
     2.015069216489792
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:426",
+    2.016448423266411
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:692",
+    2.0134569108486176
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:692",
     2.0169569849967957
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:426",
-    2.016448423266411
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:680",
+    2.01734159886837
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:686",
+    2.0146724581718445
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:417",
+    2.018415242433548
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:698",
+    2.0174907445907593
    ]
   },
   "pairs": {
@@ -304,6 +1102,111 @@
     "ts10m_level_paths/muon_d0:417",
     "ts10m_level_paths/muon_d1:426",
     0.0013792067766189575
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:686",
+    "ts10m_level_paths/muon_d2:417",
+    0.003742784261703491
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:698",
+    "ts10m_level_paths/muon_d3:420",
+    0.0014712214469909668
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:692",
+    "ts10m_level_paths/muon_d4:420",
+    0.000364154577255249
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:680",
+    "ts10m_level_paths/adamw_d2:686",
+    0.0026691406965255737
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:680",
+    "ts10m_level_paths/adamw_d3:698",
+    0.0001491457223892212
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:680",
+    "ts10m_level_paths/adamw_d4:692",
+    0.0038846880197525024
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:692",
+    "ts10m_level_paths/adamw_d2:686",
+    0.002284526824951172
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:692",
+    "ts10m_level_paths/adamw_d3:698",
+    0.000533759593963623
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:692",
+    "ts10m_level_paths/adamw_d4:692",
+    0.0035000741481781006
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:686",
+    "ts10m_level_paths/adamw_d3:698",
+    0.002818286418914795
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:686",
+    "ts10m_level_paths/adamw_d4:692",
+    0.0012155473232269287
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:698",
+    "ts10m_level_paths/adamw_d4:692",
+    0.004033833742141724
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:417",
+    "ts10m_level_paths/muon_d2:417",
+    0.0033460259437561035
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:417",
+    "ts10m_level_paths/muon_d3:420",
+    0.003892749547958374
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:417",
+    "ts10m_level_paths/muon_d4:420",
+    0.0019764602184295654
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:426",
+    "ts10m_level_paths/muon_d2:417",
+    0.001966819167137146
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:426",
+    "ts10m_level_paths/muon_d3:420",
+    0.0025135427713394165
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:426",
+    "ts10m_level_paths/muon_d4:420",
+    0.003355666995048523
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:417",
+    "ts10m_level_paths/muon_d3:420",
+    0.0005467236042022705
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:417",
+    "ts10m_level_paths/muon_d4:420",
+    0.005322486162185669
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:420",
+    "ts10m_level_paths/muon_d4:420",
+    0.0058692097663879395
    ]
   }
  },
@@ -311,21 +1214,45 @@
   "ref": "ts10m_level_paths/adamw_d0:10000",
   "c": 1.3074544072151184,
   "pick": {
-   "adamw_d0": [
-    "ts10m_level_paths/adamw_d0:10000",
-    1.3074544072151184
+   "muon_d3": [
+    "ts10m_level_paths/muon_d3:7500",
+    1.3085134625434875
+   ],
+   "muon_d4": [
+    "ts10m_level_paths/muon_d4:7700",
+    1.3072471469640732
    ],
    "muon_d0": [
     "ts10m_level_paths/muon_d0:7500",
     1.307744026184082
    ],
+   "muon_d1": [
+    "ts10m_level_paths/muon_d1:7500",
+    1.3081171214580536
+   ],
+   "adamw_d4": [
+    "ts10m_level_paths/adamw_d4:10000",
+    1.3093360662460327
+   ],
    "adamw_d1": [
     "ts10m_level_paths/adamw_d1:10000",
     1.3097437918186188
    ],
-   "muon_d1": [
-    "ts10m_level_paths/muon_d1:7500",
-    1.3081171214580536
+   "adamw_d0": [
+    "ts10m_level_paths/adamw_d0:10000",
+    1.3074544072151184
+   ],
+   "adamw_d2": [
+    "ts10m_level_paths/adamw_d2:10000",
+    1.3096523731946945
+   ],
+   "muon_d2": [
+    "ts10m_level_paths/muon_d2:7800",
+    1.307037591934204
+   ],
+   "adamw_d3": [
+    "ts10m_level_paths/adamw_d3:10000",
+    1.3122602254152298
    ]
   },
   "pairs": {
@@ -348,6 +1275,111 @@
     "ts10m_level_paths/muon_d0:7500",
     "ts10m_level_paths/muon_d1:7500",
     0.0003730952739715576
+   ],
+   "adamw-muon_d2": [
+    "ts10m_level_paths/adamw_d2:10000",
+    "ts10m_level_paths/muon_d2:7800",
+    0.0026147812604904175
+   ],
+   "adamw-muon_d3": [
+    "ts10m_level_paths/adamw_d3:10000",
+    "ts10m_level_paths/muon_d3:7500",
+    0.0037467628717422485
+   ],
+   "adamw-muon_d4": [
+    "ts10m_level_paths/adamw_d4:10000",
+    "ts10m_level_paths/muon_d4:7700",
+    0.0020889192819595337
+   ],
+   "adamw_d0-d2": [
+    "ts10m_level_paths/adamw_d0:10000",
+    "ts10m_level_paths/adamw_d2:10000",
+    0.002197965979576111
+   ],
+   "adamw_d0-d3": [
+    "ts10m_level_paths/adamw_d0:10000",
+    "ts10m_level_paths/adamw_d3:10000",
+    0.004805818200111389
+   ],
+   "adamw_d0-d4": [
+    "ts10m_level_paths/adamw_d0:10000",
+    "ts10m_level_paths/adamw_d4:10000",
+    0.0018816590309143066
+   ],
+   "adamw_d1-d2": [
+    "ts10m_level_paths/adamw_d1:10000",
+    "ts10m_level_paths/adamw_d2:10000",
+    9.141862392425537e-05
+   ],
+   "adamw_d1-d3": [
+    "ts10m_level_paths/adamw_d1:10000",
+    "ts10m_level_paths/adamw_d3:10000",
+    0.002516433596611023
+   ],
+   "adamw_d1-d4": [
+    "ts10m_level_paths/adamw_d1:10000",
+    "ts10m_level_paths/adamw_d4:10000",
+    0.00040772557258605957
+   ],
+   "adamw_d2-d3": [
+    "ts10m_level_paths/adamw_d2:10000",
+    "ts10m_level_paths/adamw_d3:10000",
+    0.0026078522205352783
+   ],
+   "adamw_d2-d4": [
+    "ts10m_level_paths/adamw_d2:10000",
+    "ts10m_level_paths/adamw_d4:10000",
+    0.0003163069486618042
+   ],
+   "adamw_d3-d4": [
+    "ts10m_level_paths/adamw_d3:10000",
+    "ts10m_level_paths/adamw_d4:10000",
+    0.0029241591691970825
+   ],
+   "muon_d0-d2": [
+    "ts10m_level_paths/muon_d0:7500",
+    "ts10m_level_paths/muon_d2:7800",
+    0.0007064342498779297
+   ],
+   "muon_d0-d3": [
+    "ts10m_level_paths/muon_d0:7500",
+    "ts10m_level_paths/muon_d3:7500",
+    0.0007694363594055176
+   ],
+   "muon_d0-d4": [
+    "ts10m_level_paths/muon_d0:7500",
+    "ts10m_level_paths/muon_d4:7700",
+    0.0004968792200088501
+   ],
+   "muon_d1-d2": [
+    "ts10m_level_paths/muon_d1:7500",
+    "ts10m_level_paths/muon_d2:7800",
+    0.0010795295238494873
+   ],
+   "muon_d1-d3": [
+    "ts10m_level_paths/muon_d1:7500",
+    "ts10m_level_paths/muon_d3:7500",
+    0.00039634108543395996
+   ],
+   "muon_d1-d4": [
+    "ts10m_level_paths/muon_d1:7500",
+    "ts10m_level_paths/muon_d4:7700",
+    0.0008699744939804077
+   ],
+   "muon_d2-d3": [
+    "ts10m_level_paths/muon_d2:7800",
+    "ts10m_level_paths/muon_d3:7500",
+    0.0014758706092834473
+   ],
+   "muon_d2-d4": [
+    "ts10m_level_paths/muon_d2:7800",
+    "ts10m_level_paths/muon_d4:7700",
+    0.0002095550298690796
+   ],
+   "muon_d3-d4": [
+    "ts10m_level_paths/muon_d3:7500",
+    "ts10m_level_paths/muon_d4:7700",
+    0.0012663155794143677
    ]
   }
  }

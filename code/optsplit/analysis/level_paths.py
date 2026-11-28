@@ -1092,8 +1092,9 @@ def cmd_work(args):
     gpu = torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0
     for t in task_list(A, args):  # locks this process took before a restart in place
         lock = Path(task_out(t, args)).with_suffix('.lock')
-        if lock.exists() and lock.read_text().strip() == me:
-            lock.unlink()
+        with contextlib.suppress(FileNotFoundError):  # another worker may release it meanwhile
+            if lock.read_text().strip() == me:
+                lock.unlink()
     while True:
         restart_if_asked()
         if os.environ.get('YIELD') in ('1', 'limit'):

@@ -1,22 +1,47 @@
 {
  "1.307": {
+  "ref": "ts10m_main/adamw_d0:10000",
   "c": 1.30745367705822,
   "pick": {
    "adamw_d0": [
     "ts10m_main/adamw_d0:10000",
     1.30745367705822
    ],
-   "muon_d0": [
-    "ts10m_main/muon_d0:8000",
-    1.2959848642349243
+   "muon_d3": [
+    "ts10m_main/muon_d3:8000",
+    1.298404186964035
+   ],
+   "adamw_d2": [
+    "ts10m_main/adamw_d2:10000",
+    1.3096523582935333
    ],
    "muon_d1": [
     "ts10m_main/muon_d1:8000",
     1.2982381731271744
    ],
+   "muon_d2": [
+    "ts10m_main/muon_d2:8000",
+    1.3032570779323578
+   ],
+   "adamw_d4": [
+    "ts10m_main/adamw_d4:10000",
+    1.309336081147194
+   ],
    "adamw_d1": [
     "ts10m_main/adamw_d1:10000",
     1.3097430169582367
+   ],
+   "adamw_d3": [
+    "ts10m_main/adamw_d3:10000",
+    1.3122602701187134
+   ],
+   "muon_d4": [
+    "ts10m_main/muon_d4:8000",
+    1.2997391372919083
+   ],
+   "muon_d0": [
+    "ts10m_main/muon_d0:8000",
+    1.2959848642349243
    ]
   },
   "pairs": {
@@ -39,6 +64,111 @@
     "ts10m_main/muon_d0:8000",
     "ts10m_main/muon_d1:8000",
     0.002253308892250061
+   ],
+   "adamw-muon_d2": [
+    "ts10m_main/adamw_d2:10000",
+    "ts10m_main/muon_d2:8000",
+    0.006395280361175537
+   ],
+   "adamw-muon_d3": [
+    "ts10m_main/adamw_d3:10000",
+    "ts10m_main/muon_d3:8000",
+    0.013856083154678345
+   ],
+   "adamw-muon_d4": [
+    "ts10m_main/adamw_d4:10000",
+    "ts10m_main/muon_d4:8000",
+    0.009596943855285645
+   ],
+   "adamw_d0-d2": [
+    "ts10m_main/adamw_d0:10000",
+    "ts10m_main/adamw_d2:10000",
+    0.0021986812353134155
+   ],
+   "adamw_d0-d3": [
+    "ts10m_main/adamw_d0:10000",
+    "ts10m_main/adamw_d3:10000",
+    0.004806593060493469
+   ],
+   "adamw_d0-d4": [
+    "ts10m_main/adamw_d0:10000",
+    "ts10m_main/adamw_d4:10000",
+    0.001882404088973999
+   ],
+   "adamw_d1-d2": [
+    "ts10m_main/adamw_d1:10000",
+    "ts10m_main/adamw_d2:10000",
+    9.065866470336914e-05
+   ],
+   "adamw_d1-d3": [
+    "ts10m_main/adamw_d1:10000",
+    "ts10m_main/adamw_d3:10000",
+    0.0025172531604766846
+   ],
+   "adamw_d1-d4": [
+    "ts10m_main/adamw_d1:10000",
+    "ts10m_main/adamw_d4:10000",
+    0.00040693581104278564
+   ],
+   "adamw_d2-d3": [
+    "ts10m_main/adamw_d2:10000",
+    "ts10m_main/adamw_d3:10000",
+    0.0026079118251800537
+   ],
+   "adamw_d2-d4": [
+    "ts10m_main/adamw_d2:10000",
+    "ts10m_main/adamw_d4:10000",
+    0.0003162771463394165
+   ],
+   "adamw_d3-d4": [
+    "ts10m_main/adamw_d3:10000",
+    "ts10m_main/adamw_d4:10000",
+    0.00292418897151947
+   ],
+   "muon_d0-d2": [
+    "ts10m_main/muon_d0:8000",
+    "ts10m_main/muon_d2:8000",
+    0.007272213697433472
+   ],
+   "muon_d0-d3": [
+    "ts10m_main/muon_d0:8000",
+    "ts10m_main/muon_d3:8000",
+    0.0024193227291107178
+   ],
+   "muon_d0-d4": [
+    "ts10m_main/muon_d0:8000",
+    "ts10m_main/muon_d4:8000",
+    0.0037542730569839478
+   ],
+   "muon_d1-d2": [
+    "ts10m_main/muon_d1:8000",
+    "ts10m_main/muon_d2:8000",
+    0.005018904805183411
+   ],
+   "muon_d1-d3": [
+    "ts10m_main/muon_d1:8000",
+    "ts10m_main/muon_d3:8000",
+    0.00016601383686065674
+   ],
+   "muon_d1-d4": [
+    "ts10m_main/muon_d1:8000",
+    "ts10m_main/muon_d4:8000",
+    0.0015009641647338867
+   ],
+   "muon_d2-d3": [
+    "ts10m_main/muon_d2:8000",
+    "ts10m_main/muon_d3:8000",
+    0.004852890968322754
+   ],
+   "muon_d2-d4": [
+    "ts10m_main/muon_d2:8000",
+    "ts10m_main/muon_d4:8000",
+    0.003517940640449524
+   ],
+   "muon_d3-d4": [
+    "ts10m_main/muon_d3:8000",
+    "ts10m_main/muon_d4:8000",
+    0.00133495032787323
    ]
   }
  }
