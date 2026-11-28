@@ -29,8 +29,8 @@
 same data order) are farther apart than two runs of one optimizer that differ only in data order. We call the latter
 pair the \emph{floor}: it shows how far apart runs land by chance. From 3\% to 75\% (no paths were run at 100\%), AdamW and
 Muon are joined by a constant-loss path; all paths and level-set walks stay within 0.05 nats of the level. Values are
-means over the pairs of each group, as in the figures: all 25 pairs for the straight line (5 AdamW--Muon pairs, one
-per data order, and 10 pairs per floor); so far 2 AdamW--Muon pairs and one pair per floor for the paths and walks.
+means over the pairs of each group, as in the figures: all 25 pairs for the straight line and the walks (5 AdamW--Muon
+pairs, one per data order, and 10 pairs per floor); so far 2 AdamW--Muon pairs and one pair per floor for the paths.
 \begin{itemize}\setlength{\itemsep}{0pt}
 \item \textbf{Farther apart.} Their distance, divided by the mean distance each model travelled from the
 initialization, is 1.13--1.39 against 0.68--1.24 for the floor. Along the straight line between them the loss rises
@@ -39,8 +39,8 @@ against every floor pair, at every level.
 \item \textbf{Longer constant-loss paths.} The AdamW--Muon path is longer than the paths of both floors (AdamW and
 Muon) at 3--14\% and 50--75\% (\cref{fig:paths}), though one of the two orders alone is not at 3\%, 14\%, 50\% and
 75\%. Each order on its own is longer only at 4--7\%.
-\item \textbf{Longer level-set walks up to 14\%.} There, all walks reach $\theta_B$ and AdamW--Muon's detours exceed
-both floors' (\cref{fig:walks}); later, most walks stop short of $\theta_B$.
+\item \textbf{Longer level-set walks up to 14\%.} There, every walk reaches $\theta_B$, and every AdamW--Muon pair's
+detour exceeds every floor pair's (\cref{fig:walks}); later, most walks stop short of $\theta_B$.
 \end{itemize}
 
 \begin{figure}[H]
@@ -92,14 +92,17 @@ predictor--corrector continuation after Huang et al.\ (arXiv 2609.38081).
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.93\linewidth]{level_paths/level_paths_robust.pdf}
-\caption{Level-set walks against the loss level: (a) detour, only for walks that reached $\theta_B$; triangles (right
-axis): the distance to $\theta_B$ left where a walk stopped short. (b) Gap; dotted: $\tau = 0.05$.}
+\caption{Level-set walks against the loss level: (a) detour, averaged over the walks that reached $\theta_B$; triangles
+(right axis): the distance to $\theta_B$ left, averaged over the walks that stopped short. (b) Gap; dotted:
+$\tau = 0.05$.}
 \label{fig:walks}
 \end{figure}
 
-The level-set walks stay within 0.011 nats of the level, well within $\tau = 0.05$. Up to 14\%, all of them reach
-$\theta_B$, and AdamW--Muon's detours exceed both floors' at every level (0.16--13\% against 0--1.4\%). At 33\% and
-50\%, only the AdamW floor reaches $\theta_B$ (detours 10\% and 38\%); later, no walk does. The others stop with
-58--95\% of the distance left, once even steps of 0.05\% of the distance can no longer be corrected back to within 0.01 nats.
+Every level-set walk stays within 0.0125 nats of the level (group means: at most 0.011), well within $\tau = 0.05$.
+Up to 14\%, all 25 walks per level reach $\theta_B$. There, AdamW--Muon's mean detour (0.16--13\%) exceeds both
+floors' (at most 0.8\%), and every AdamW--Muon pair's detour exceeds every floor pair's. At 33\%, only the AdamW floor's
+walks reach $\theta_B$ (10 of 10, mean detour 11\%); at 50\%, 2 of its 10 do (mean detour 40\%); at 75\% and 100\%, none
+does. The walks that stop short have 56--94\% of the distance left on average, once even steps of 0.05\% of the
+distance can no longer be corrected back to within 0.01 nats.
 
 \end{document}
