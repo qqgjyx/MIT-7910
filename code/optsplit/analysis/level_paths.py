@@ -1095,6 +1095,8 @@ def cmd_work(args):
     A = Path(args.dir)
     RESTART, model, sets = A / 'restart_workers', None, None
     me = f"{os.environ.get('SLURM_JOB_ID', 'local')}:{socket.gethostname()}:{os.getpid()}"
+    if os.environ.get('SLURM_JOB_ID') and not torch.cuda.is_available():  # a broken node: do not work on the CPU
+        sys.exit(f'FAILED: no CUDA on {socket.gethostname()}')
     gpu = torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0
     for t in task_list(A, args):  # locks this process took before a restart in place
         lock = Path(task_out(t, args)).with_suffix('.lock')
