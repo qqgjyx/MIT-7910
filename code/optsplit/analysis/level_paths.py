@@ -1076,9 +1076,9 @@ def reruns_alive(A):
 
 
 def _holder(out):
-    """The Slurm job that holds the lock of output `out`, or None."""
+    """The 'job:host' that holds the lock of output `out`, or None."""
     with contextlib.suppress(FileNotFoundError):
-        return Path(out).with_suffix('.lock').read_text().split(':')[0]
+        return ':'.join(Path(out).with_suffix('.lock').read_text().split(':')[:2])
 
 
 def cmd_work(args):
@@ -1118,7 +1118,8 @@ def cmd_work(args):
              if args.min_tier <= t[0] <= args.max_tier and (not args.kinds or t[1] in args.kinds)]
         # bands of this job (one GPU) against the room for them: a band of up to 40 points takes about --band-gb
         job, cap = me.split(':')[0], max(1, int(gpu // (args.band_gb * 2 ** 30)))
-        held = lambda: sum(_holder(task_out(u, args)) == job for u in T if u[1] == 'band')
+        # bands held on this node (a lock this job left on another node before a requeue is taken back by claim)
+        held = lambda: sum(_holder(task_out(u, args)) == me.rsplit(':', 1)[0] for u in T if u[1] == 'band')
         room = cap - held()
         short = False  # a band left for want of room: wait for it instead of exiting
         for t in T:
